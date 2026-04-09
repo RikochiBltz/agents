@@ -208,7 +208,10 @@ class DataAgent:
                     elif total_rows == 0:
                         hint = f"\n[0 rows — wrong table or filters matched nothing, try a different approach]"
                     else:
-                        hint = f"\n[{total_rows} rows returned — verify this answers the question, then respond VERIFIED]"
+                        hint = (
+                            f"\n[{total_rows} rows returned — if this data answers the question, "
+                            f"respond VERIFIED immediately. Do NOT fetch more data unless something is clearly missing.]"
+                        )
 
                     messages.append({
                         "role":         "tool",
@@ -345,6 +348,17 @@ class DataAgent:
         sort_by     = args.get("sort_by")
         sort_dir    = args.get("sort_dir", "desc")
         size        = args.get("size", 50)
+
+        if not group_cols:
+            return {
+                "error": (
+                    "compare_periods requires at least one groupBy column. "
+                    "For a grand-total comparison (no breakdown), use aggregate_table instead: "
+                    "groupByExpressions=[YEAR(date) AS annee], "
+                    "filters=[date between ['YYYY-01-01','YYYY-12-31']] covering both years. "
+                    "That returns one row per year which directly answers the comparison."
+                )
+            }
 
         def _body(period: dict) -> dict:
             date_filters = [
@@ -528,10 +542,28 @@ For "total CA of year X" with no other dimension:
                   metrics=[SUM(ttc) AS ca], filters=[date between ["X-01-01","X-12-31"]])
   → one row per year = the grand total.
 
-## COMPARE PERIODS — period-over-period comparison
-For "CA 2023 vs 2024" or any growth rate question, use compare_periods instead of two separate calls.
-Returns merged rows with columns: <dimension>, <metric>_2023, <metric>_2024, <metric>_growth_pct.
-Example:
+## COMPARISON QUESTIONS (2023 vs 2024, any two periods)
+
+### Case A — TOTAL comparison (no breakdown, just the two grand totals)
+Use ONE aggregate_table with YEAR grouping and a date range covering both years.
+This is the fastest and most reliable approach — one call, two rows.
+
+  aggregate_table(
+    table="ca_tot_vente",
+    groupByExpressions=[{{"column":"date","function":"YEAR","alias":"annee"}}],
+    metrics=[{{"column":"ttc","function":"SUM","alias":"ca_total"}}],
+    filters=[{{"column":"date","operator":"between","value":["2023-01-01","2024-12-31"]}}],
+    sort={{"column":"annee","direction":"asc"}}
+  )
+  → returns: [{{"annee":2023,"ca_total":X}}, {{"annee":2024,"ca_total":Y}}]
+  → The Analysis Agent computes the growth rate. You do NOT need to compute it yourself.
+  → Say VERIFIED immediately — 2 rows is the correct answer.
+
+  NEVER call compare_periods with an empty groupBy — it will fail.
+
+### Case B — BREAKDOWN comparison (growth per delegate, zone, product, etc.)
+Use compare_periods when there is a dimension to group by.
+
   compare_periods(
     table="ca_tot_vente",
     date_column="date",
@@ -542,6 +574,8 @@ Example:
     sort_by="ca_2024",
     sort_dir="desc"
   )
+  → returns one row per delegate with ca_2023, ca_2024, ca_growth_pct.
+  → Say VERIFIED immediately after receiving rows.
 
 ## FILTER OPERATORS (all supported)
 | Operator | Meaning | Value |
