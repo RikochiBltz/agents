@@ -24,6 +24,21 @@ ANALYSIS_MODEL: str = os.getenv("ANALYSIS_MODEL", "gpt-oss:20b-cloud")
 BACKEND_EMAIL: str = os.getenv("BACKEND_EMAIL", "")
 BACKEND_PASSWORD: str = os.getenv("BACKEND_PASSWORD", "")
 
+# ── Report Agent LLM ─────────────────────────────────────────────────
+REPORT_BASE_URL: str = os.getenv("REPORT_BASE_URL", "http://localhost:11434/v1")
+REPORT_API_KEY: str  = os.getenv("REPORT_API_KEY",  "ollama")
+REPORT_MODEL: str    = os.getenv("REPORT_MODEL",    "gpt-oss:20b-cloud")
+
+# FAISS catalog index built from product PPTXs
+REPORT_FAISS_INDEX: str    = os.getenv(
+    "REPORT_FAISS_INDEX",
+    r"C:\Users\moham\Downloads\medimedi\report\rag\faiss_index\catalog.index",
+)
+REPORT_FAISS_METADATA: str = os.getenv(
+    "REPORT_FAISS_METADATA",
+    r"C:\Users\moham\Downloads\medimedi\report\rag\faiss_index\metadata.pkl",
+)
+
 # ── RAG ───────────────────────────────────────────────────────────────
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 PDF_PATH: str = os.getenv("PDF_PATH", "vital_dictionnaire_donnees_complet.pdf")

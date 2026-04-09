@@ -151,7 +151,10 @@ def run_pipeline(
         final = _run_data_pipeline(routing, data_agent, analysis_agent, orchestrator_ms)
     else:
         t0 = time.perf_counter()
-        with console.status("[yellow]Report Agent...[/yellow]"):
+        with console.status(
+            f"[magenta]Report Agent ({config.REPORT_MODEL})...[/magenta]",
+            spinner="dots",
+        ):
             final = report_agent.process(routing.raw_question)
         report_ms = int((time.perf_counter() - t0) * 1000)
         final.timing = [
@@ -337,6 +340,7 @@ def _print_agent_briefs(routing: RoutingDecision) -> None:
 
 
 def _display_result(result: DataResult, routing: RoutingDecision, total_ms: int) -> None:
+    is_report = routing.pipeline == 2
     if result.error:
         console.print(Panel(
             f"[red]{result.error}[/red]",
@@ -369,11 +373,15 @@ def _display_result(result: DataResult, routing: RoutingDecision, total_ms: int)
     else:
         console.print("[dim]No data returned.[/dim]")
 
-    # ── Analysis ──────────────────────────────────────────────────────
+    # ── Analysis / Report output ──────────────────────────────────────
     if result.analysis:
+        if is_report:
+            panel_title = f"[bold magenta]rapport[/bold magenta] [dim]({config.REPORT_MODEL})[/dim]"
+        else:
+            panel_title = f"[bold magenta]analysis[/bold magenta] [dim]({config.ANALYSIS_MODEL})[/dim]"
         console.print(Panel(
             Markdown(result.analysis),
-            title=f"[bold magenta]analysis[/bold magenta] [dim]({config.ANALYSIS_MODEL})[/dim]",
+            title=panel_title,
             border_style="magenta",
             expand=False,
         ))

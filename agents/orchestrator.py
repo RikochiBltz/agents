@@ -54,8 +54,10 @@ _ROUTE_TOOL = {
                     "description": (
                         "1 = DataAgent + Analysis: user wants any data query, KPI, "
                         "ranking, total, trend, comparison, or analysis of company data. "
-                        "2 = Report: user explicitly asks for a written narrative report "
-                        "or executive summary document."
+                        "2 = Report Agent: user wants help with field visit reports — "
+                        "reformulating notes, checking structure, identifying missing points, "
+                        "evaluating a draft, getting a report example, asking product questions "
+                        "(dosage, indication, composition), or any visit-report writing assistance."
                     ),
                 },
                 "reasoning": {
@@ -118,7 +120,6 @@ Pipeline 1 — DataAgent → Analysis Agent
   • Period comparisons: year-over-year, month-over-month, growth rates
   • Trends and breakdowns: monthly evolution, by-zone distribution
   • Raw listings and searches: pending demands, client balances, stock levels
-  • Any mix of the above
   The DataAgent fetches and computes the data. The Analysis Agent interprets it.
 
   Examples:
@@ -131,13 +132,28 @@ Pipeline 1 — DataAgent → Analysis Agent
     "Croissance des ventes 2022 vs 2023"
       → data_query: "Compare le CA total de 2022 et 2023 par délégué."
       → analysis_spec: "Calcule et commente le taux de croissance 2022→2023."
-    "CA par produit par mois en 2023"
-      → data_query: "Récupère le CA mensuel par produit pour 2023."
-      → analysis_spec: "Identifie les produits les plus performants et les tendances mensuelles."
 
 Pipeline 2 — Report Agent
-  Use ONLY when the user explicitly asks for a written report, document, or executive summary.
-  Examples: "Écris un rapport sur les ventes Q1 2024", "Génère un résumé exécutif"
+  Use when the user wants field visit report assistance:
+  • Reformulate raw notes into a professional report
+  • Check or show the structure of a visit report
+  • Identify missing sections in a draft report
+  • Evaluate whether a report is complete
+  • Get an example of a well-written visit report
+  • Ask product-specific questions (dosage, indication, composition, side effects)
+  • Get technical/scientific suggestions to enrich a report
+
+  Examples:
+    "reformule mes notes : visite cardiologue, omega 3, intéressé"
+      → pipeline 2
+    "qu'est-ce qui manque dans mon rapport ?"
+      → pipeline 2
+    "donne-moi la structure d'un rapport de visite"
+      → pipeline 2
+    "quel est le dosage de l'Omega 3 ?"
+      → pipeline 2
+    "évalue mon rapport : [draft text]"
+      → pipeline 2
 
 ## DATA QUERY RULES
 - Write a clarified, natural-language question for the DataAgent.
