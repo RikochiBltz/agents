@@ -192,7 +192,7 @@ class DataAgent:
                 result_data = self._dispatch(name, args)
                 yield f"__timing__:tool:{name}:{int((time.perf_counter() - t0) * 1000)}"
 
-                if name in ("query_table", "aggregate_table", "browse_table"):
+                if name in ("query_table", "aggregate_table", "browse_table", "compare_periods"):
                     yield f"__query_detail__:{name}:{json.dumps(args, ensure_ascii=False)}"
 
                     total_rows = result_data.get("totalRows", -1) if isinstance(result_data, dict) else -1

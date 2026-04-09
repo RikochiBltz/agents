@@ -36,6 +36,7 @@ PIPELINE_LABELS = {
 
 TOOL_LABELS = {
     "aggregate_table":   ("SUM/GROUP", "yellow"),
+    "compare_periods":   ("COMPARE",   "green"),
     "query_table":       ("QUERY",     "blue"),
     "browse_table":      ("BROWSE",    "blue"),
     "get_table_columns": ("COLUMNS",   "dim"),
