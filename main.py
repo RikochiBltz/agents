@@ -2,9 +2,8 @@
 MediNote Multi-Agent CLI
 
 Pipelines:
-  1 → Orchestrator → DataAgent → KPI Agent → Analysis Agent → Response
-  2 → Orchestrator → DataAgent → Analysis Agent → Response
-  3 → Orchestrator → Report Agent → Response
+  1 → Orchestrator → DataAgent → Analysis Agent → Response
+  2 → Orchestrator → Report Agent → Response
 """
 from __future__ import annotations
 
@@ -25,16 +24,14 @@ from core.backend_client import BackendClient
 from core.rag import TableRAG
 from agents.orchestrator import Orchestrator, RoutingDecision
 from agents.data_agent import DataAgent, DataResult
-from agents.kpi_agent import KpiAgent
 from agents.analysis_agent import AnalysisAgent
 from agents.report_agent import ReportAgent
 
 console = Console()
 
 PIPELINE_LABELS = {
-    1: ("Orchestrator", "DataAgent", "KPI Agent", "Analysis Agent", "Response"),
-    2: ("Orchestrator", "DataAgent", "Analysis Agent", "Response"),
-    3: ("Orchestrator", "Report Agent", "Response"),
+    1: ("Orchestrator", "DataAgent", "Analysis Agent", "Response"),
+    2: ("Orchestrator", "Report Agent", "Response"),
 }
 
 TOOL_LABELS = {
@@ -116,7 +113,6 @@ def run_pipeline(
     question: str,
     orchestrator: Orchestrator,
     data_agent: DataAgent,
-    kpi_agent: KpiAgent,
     analysis_agent: AnalysisAgent,
     report_agent: ReportAgent,
 ) -> None:
@@ -150,8 +146,8 @@ def run_pipeline(
     # ── Step 2: Execute pipeline ──────────────────────────────────────
     final: DataResult
 
-    if routing.pipeline in (1, 2):
-        final = _run_data_pipeline(routing, data_agent, kpi_agent, analysis_agent, orchestrator_ms)
+    if routing.pipeline == 1:
+        final = _run_data_pipeline(routing, data_agent, analysis_agent, orchestrator_ms)
     else:
         t0 = time.perf_counter()
         with console.status("[yellow]Report Agent...[/yellow]"):
@@ -170,11 +166,10 @@ def run_pipeline(
 def _run_data_pipeline(
     routing: RoutingDecision,
     data_agent: DataAgent,
-    kpi_agent: KpiAgent,
     analysis_agent: AnalysisAgent,
     orchestrator_ms: int = 0,
 ) -> DataResult:
-    """Run DataAgent → (KPI →) Analysis for pipelines 1 and 2."""
+    """Run DataAgent → Analysis Agent for pipeline 1."""
     rag_indicator = ""
     timing: list[tuple] = []
     answer_parts: list[str] = []
@@ -251,29 +246,15 @@ def _run_data_pipeline(
     if query_detail:
         _print_query_detail(query_detail)
 
-    # Pass through agents with their specs from the Orchestrator
-    if routing.pipeline == 1:
-        t0 = time.perf_counter()
-        data_result = kpi_agent.process(data_result, kpi_spec=routing.kpi_spec)
-        data_result.timing.append(("kpi", "KPI Agent", int((time.perf_counter() - t0) * 1000)))
-
-        t0 = time.perf_counter()
-        with console.status(f"[magenta]Analysis Agent ({config.ANALYSIS_MODEL})...[/magenta]", spinner="dots"):
-            data_result = analysis_agent.process(
-                data_result,
-                analysis_spec=routing.analysis_spec,
-                question=routing.raw_question,
-            )
-        data_result.timing.append(("analysis", "Analysis Agent", int((time.perf_counter() - t0) * 1000)))
-    else:
-        t0 = time.perf_counter()
-        with console.status(f"[magenta]Analysis Agent ({config.ANALYSIS_MODEL})...[/magenta]", spinner="dots"):
-            data_result = analysis_agent.process(
-                data_result,
-                analysis_spec=routing.analysis_spec,
-                question=routing.raw_question,
-            )
-        data_result.timing.append(("analysis", "Analysis Agent", int((time.perf_counter() - t0) * 1000)))
+    # Analysis Agent interprets the data
+    t0 = time.perf_counter()
+    with console.status(f"[magenta]Analysis Agent ({config.ANALYSIS_MODEL})...[/magenta]", spinner="dots"):
+        data_result = analysis_agent.process(
+            data_result,
+            analysis_spec=routing.analysis_spec,
+            question=routing.raw_question,
+        )
+    data_result.timing.append(("analysis", "Analysis Agent", int((time.perf_counter() - t0) * 1000)))
 
     return data_result
 
@@ -317,9 +298,8 @@ def _print_routing(routing: RoutingDecision, orchestrator_ms: int) -> None:
     )
     console.print(f"  Pipeline [bold]{routing.pipeline}[/bold]:  {path}")
     console.print(f"  [dim]Reason    : {routing.reasoning}[/dim]")
-    console.print(f"  [dim]DataQuery : {routing.data_query}[/dim]")
-    if routing.kpi_spec:
-        console.print(f"  [dim]KPI Spec  : {routing.kpi_spec}[/dim]")
+    if routing.data_query:
+        console.print(f"  [dim]DataQuery : {routing.data_query}[/dim]")
     if routing.analysis_spec:
         console.print(f"  [dim]Analysis  : {routing.analysis_spec}[/dim]")
     console.print(f"  [dim]Orchestrator took {_fmt_ms(orchestrator_ms)}[/dim]")
@@ -328,26 +308,22 @@ def _print_routing(routing: RoutingDecision, orchestrator_ms: int) -> None:
 
 def _print_agent_briefs(routing: RoutingDecision) -> None:
     """Print a per-agent summary of what each agent was asked."""
-    _ACTIVE      = "[bold green]✓[/bold green]"
-    _PLACEHOLDER = "[dim yellow]○[/dim yellow]"
-    _SKIPPED     = "[dim]—[/dim]"
+    _ACTIVE  = "[bold green]✓[/bold green]"
+    _SKIPPED = "[dim]—[/dim]"
 
     def brief(spec: str) -> str:
         return f"[dim]{spec}[/dim]" if spec else "[dim italic]no spec[/dim italic]"
 
-    agents: list[tuple[str, str, str]] = []  # (marker, name, brief)
+    agents: list[tuple[str, str, str]] = []
     agents.append((_ACTIVE, "Orchestrator", f"[dim]{routing.reasoning}[/dim]"))
-    agents.append((_ACTIVE, "DataAgent",    brief(routing.data_query)))
 
     if routing.pipeline == 1:
-        agents.append((_PLACEHOLDER, "KPI Agent",      brief(routing.kpi_spec)))
-        agents.append((_PLACEHOLDER, "Analysis Agent", brief(routing.analysis_spec)))
-    elif routing.pipeline == 2:
-        agents.append((_SKIPPED,     "KPI Agent",      "[dim italic]skipped[/dim italic]"))
-        agents.append((_PLACEHOLDER, "Analysis Agent", brief(routing.analysis_spec)))
+        agents.append((_ACTIVE,  "DataAgent",     brief(routing.data_query)))
+        agents.append((_ACTIVE,  "Analysis Agent", brief(routing.analysis_spec)))
     else:
-        agents.append((_SKIPPED, "KPI Agent",      "[dim italic]skipped[/dim italic]"))
+        agents.append((_SKIPPED, "DataAgent",      "[dim italic]skipped[/dim italic]"))
         agents.append((_SKIPPED, "Analysis Agent", "[dim italic]skipped[/dim italic]"))
+        agents.append((_ACTIVE,  "Report Agent",   "[dim]generate report[/dim]"))
 
     lines = [f"  {marker} [bold]{name:<18}[/bold] {b}" for marker, name, b in agents]
 
@@ -406,7 +382,6 @@ def _display_result(result: DataResult, routing: RoutingDecision, total_ms: int)
         "orchestrator": "cyan",
         "llm":          "yellow",
         "tool":         "blue",
-        "kpi":          "green",
         "analysis":     "magenta",
         "report":       "magenta",
     }
@@ -506,7 +481,6 @@ def main():
 
     orchestrator   = Orchestrator()
     data_agent     = DataAgent(client, rag=rag)
-    kpi_agent      = KpiAgent()
     analysis_agent = AnalysisAgent()
     report_agent   = ReportAgent()
 
@@ -538,7 +512,6 @@ def main():
                 question,
                 orchestrator,
                 data_agent,
-                kpi_agent,
                 analysis_agent,
                 report_agent,
             )

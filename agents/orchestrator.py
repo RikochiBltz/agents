@@ -2,20 +2,18 @@
 Orchestrator Agent
 
 Receives the raw user question and produces a full routing decision:
-  1. Which pipeline to use (1, 2, or 3)
-  2. data_query   — precise instruction for the DataAgent (what rows to fetch)
-  3. kpi_spec     — what the KPI Agent must compute (Pipeline 1 only)
-  4. analysis_spec — what the Analysis Agent must do (Pipeline 1 and 2)
+  1. Which pipeline to use (1 or 2)
+  2. data_query    — precise instruction for the DataAgent (Pipeline 1)
+  3. analysis_spec — what the Analysis Agent must do (Pipeline 1)
 
 Pipelines:
-  1 → DataAgent → KPI Agent → Analysis Agent → Response
-  2 → DataAgent → Analysis Agent → Response
-  3 → Report Agent → Response
+  1 → DataAgent → Analysis Agent → Response
+  2 → Report Agent → Response
 """
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from openai import OpenAI
 
@@ -38,7 +36,7 @@ _ROUTE_TOOL = {
                     "type": "boolean",
                     "description": (
                         "Set to true if the question is outside the allowed scope. "
-                        "When true, only rejection_message is required — all other fields are ignored."
+                        "When true, only rejection_message is required."
                     ),
                 },
                 "rejection_message": {
@@ -52,13 +50,12 @@ _ROUTE_TOOL = {
                 },
                 "pipeline": {
                     "type": "integer",
-                    "enum": [1, 2, 3],
+                    "enum": [1, 2],
                     "description": (
-                        "1 = KPI + Analysis: user wants computed metrics, rankings, totals, "
-                        "growth rates, best/worst performers. KPI Agent does the math. "
-                        "2 = Data + Analysis: user wants raw rows, listings, filtered search, "
-                        "trend exploration. No KPI computation needed. "
-                        "3 = Report: user wants a narrative report or executive summary."
+                        "1 = DataAgent + Analysis: user wants any data query, KPI, "
+                        "ranking, total, trend, comparison, or analysis of company data. "
+                        "2 = Report: user explicitly asks for a written narrative report "
+                        "or executive summary document."
                     ),
                 },
                 "reasoning": {
@@ -68,30 +65,21 @@ _ROUTE_TOOL = {
                 "data_query": {
                     "type": "string",
                     "description": (
-                        "A clarified version of the user's question for the DataAgent. "
+                        "Pipeline 1 only. A clarified version of the user's question for the DataAgent. "
                         "Resolve ambiguities (e.g. relative dates → absolute year/period), "
                         "but do NOT specify tables, columns, filters, or SQL syntax — "
                         "the DataAgent handles all of that itself. "
                         "Keep the original language."
                     ),
                 },
-                "kpi_spec": {
-                    "type": "string",
-                    "description": (
-                        "Pipeline 1 only. Exact KPI calculations the KPI Agent must perform "
-                        "on the data returned by DataAgent. Be explicit: "
-                        "'Compute total TTC, total quantity, average TTC per transaction, "
-                        "and rank by total TTC descending.' "
-                        "Leave empty for Pipeline 2 and 3."
-                    ),
-                },
                 "analysis_spec": {
                     "type": "string",
                     "description": (
-                        "What the Analysis Agent must do after receiving data (or KPI results). "
-                        "Examples: 'Identify top and bottom performers', "
-                        "'Detect anomalies in monthly trend', 'Compare zones'. "
-                        "Leave empty for Pipeline 3."
+                        "Pipeline 1 only. What the Analysis Agent must do after receiving data. "
+                        "Examples: 'Identify top and bottom performers by CA', "
+                        "'Detect anomalies in monthly trend', 'Compute growth rate 2023→2024', "
+                        "'Compare zones and highlight best performers'. "
+                        "Leave empty for Pipeline 2."
                     ),
                 },
             },
@@ -108,8 +96,8 @@ Your second job is to route in-scope questions to the right pipeline.
 ## SCOPE GUARDRAIL — CHECK FIRST
 
 ALLOWED: Any question that can be answered by querying the company's database —
-regardless of what the data contains (sales, vehicles, products, clients, stock,
-payments, visits, or any other entity stored in the system).
+regardless of what the data contains (sales, products, clients, stock,
+payments, visits, delegates, zones, or any other entity stored in the system).
 When in doubt, allow it.
 
 REJECTED: Questions that have nothing to do with querying or analysing data, for example:
@@ -123,51 +111,42 @@ If the question is in scope → call route_pipeline(rejected=false, pipeline=...
 
 ## PIPELINE SELECTION
 
-Pipeline 1 — DataAgent → KPI Agent → Analysis Agent
-  Use when: user wants computed KPIs — totals, averages, rankings, growth rates,
-  best/worst performers, target vs actual comparisons.
-  DataAgent fetches data at an intermediate breakdown level — NOT the final KPI value.
-  The KPI Agent receives that breakdown and does the final computation.
-  The data_query must ask for the right dimension/granularity, not the final answer.
+Pipeline 1 — DataAgent → Analysis Agent
+  Use for ALL data questions:
+  • KPIs and metrics: totals, averages, sums, counts
+  • Rankings and top-N: best delegates, top products, highest zones
+  • Period comparisons: year-over-year, month-over-month, growth rates
+  • Trends and breakdowns: monthly evolution, by-zone distribution
+  • Raw listings and searches: pending demands, client balances, stock levels
+  • Any mix of the above
+  The DataAgent fetches and computes the data. The Analysis Agent interprets it.
+
   Examples:
     "Chiffre d'affaires de 2024"
-      → data_query: "Récupère le CA mensuel de l'année 2024."
-      → kpi_spec: "Calcule le total CA = SUM de tous les mois de 2024."
+      → data_query: "Récupère le CA total pour l'année 2024."
+      → analysis_spec: "Donne le total CA 2024 et compare avec le contexte général."
     "Top 5 délégués par CA 2023"
-      → data_query: "Récupère le CA par délégué pour l'année 2023."
-      → kpi_spec: "Classe les délégués par CA décroissant, retourne le top 5."
+      → data_query: "Récupère le CA par délégué pour l'année 2023, top 5 décroissant."
+      → analysis_spec: "Identifie les 5 meilleurs délégués et commente leur performance."
     "Croissance des ventes 2022 vs 2023"
-      → data_query: "Récupère le CA mensuel pour 2022 et 2023."
-      → kpi_spec: "Calcule le CA total de chaque année et le taux de croissance."
+      → data_query: "Compare le CA total de 2022 et 2023 par délégué."
+      → analysis_spec: "Calcule et commente le taux de croissance 2022→2023."
+    "CA par produit par mois en 2023"
+      → data_query: "Récupère le CA mensuel par produit pour 2023."
+      → analysis_spec: "Identifie les produits les plus performants et les tendances mensuelles."
 
-Pipeline 2 — DataAgent → Analysis Agent
-  Use when: user wants raw data, listings, filtered searches, stock levels, pending items.
-  DataAgent fetches the rows. Analysis Agent interprets them.
-  Examples:
-    "Liste des demandes en attente"
-    "Sessions d'animation de janvier à juin"
-    "Clients avec solde > 5000"
-
-Pipeline 3 — Report Agent
-  Use when: user explicitly asks for a written report, summary, or document.
-  Examples: "Écris un rapport sur les ventes Q1 2024"
+Pipeline 2 — Report Agent
+  Use ONLY when the user explicitly asks for a written report, document, or executive summary.
+  Examples: "Écris un rapport sur les ventes Q1 2024", "Génère un résumé exécutif"
 
 ## DATA QUERY RULES
 - Write a clarified, natural-language question for the DataAgent.
-- Resolve relative dates to absolute periods (today = 2026-04-05).
+- Resolve relative dates to absolute periods (today = 2026-04-09).
 - Do NOT mention tables, columns, filters, SQL, or row counts — the DataAgent decides all of that.
-- For Pipeline 1: ask for data at the dimension level needed for the KPI, not the final answer.
-  The DataAgent must return a breakdown (by month, by delegate, by product…) so the KPI Agent
-  has real computation to perform. Never ask "what is the total" in the data_query for Pipeline 1.
 - Keep the original language.
 
-## KPI SPEC RULES
-- Be explicit about every metric: name, formula, and grouping dimension
-- Example: "1. Total TTC = SUM(ttc) for all rows. 2. Rank delegates by total TTC descending."
-- Include the time period for context
-
 ## CLARIFICATION RULES
-- Convert relative dates to absolute ranges (today = 2026-04-05)
+- Convert relative dates to absolute ranges (today = 2026-04-09)
 - Keep the original language (French stays French)
 - Do NOT invent details not in the original question
 
@@ -179,9 +158,8 @@ Always call route_pipeline(). Never respond with plain text.
 class RoutingDecision:
     pipeline: int
     reasoning: str
-    data_query: str                    # instruction for DataAgent
-    kpi_spec: str = ""                 # instruction for KPI Agent (Pipeline 1)
-    analysis_spec: str = ""            # instruction for Analysis Agent (Pipeline 1 & 2)
+    data_query: str                    # instruction for DataAgent (Pipeline 1)
+    analysis_spec: str = ""            # instruction for Analysis Agent (Pipeline 1)
     raw_question: str = ""
     rejected: bool = False
     rejection_message: str = ""
@@ -221,8 +199,7 @@ class Orchestrator:
         return RoutingDecision(
             pipeline=args["pipeline"],
             reasoning=args.get("reasoning", ""),
-            data_query=args["data_query"],
-            kpi_spec=args.get("kpi_spec", ""),
+            data_query=args.get("data_query", ""),
             analysis_spec=args.get("analysis_spec", ""),
             raw_question=question,
         )

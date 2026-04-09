@@ -2,7 +2,7 @@
 
 ## Overview
 
-This backend exposes a role-aware data API designed for AI agents (chatbot, KPI agent, analysis agent).
+This backend exposes a role-aware data API designed for AI agents (DataAgent, Analysis Agent).
 Every request must carry a valid JWT token. The backend enforces role-based access automatically —
 the agent never needs to hard-code what a user can or cannot see.
 
@@ -276,16 +276,24 @@ Content-Type: application/json
 
 ### 6.1 Filter Operators
 
-| Operator | SQL equivalent | Value type          | Example                                      |
-|----------|---------------|---------------------|----------------------------------------------|
-| `eq`     | `=`           | string / number     | `{ "column": "dlg", "operator": "eq", "value": "DLG01" }` |
-| `neq`    | `!=`          | string / number     | `{ "column": "etat", "operator": "neq", "value": 0 }` |
-| `gt`     | `>`           | number / date       | `{ "column": "ttc", "operator": "gt", "value": 1000 }` |
-| `gte`    | `>=`          | number / date       | `{ "column": "date", "operator": "gte", "value": "2024-01-01" }` |
-| `lt`     | `<`           | number / date       | `{ "column": "qte", "operator": "lt", "value": 5 }` |
-| `lte`    | `<=`          | number / date       | `{ "column": "date", "operator": "lte", "value": "2024-12-31" }` |
-| `like`   | `LIKE`        | string (use `%`)    | `{ "column": "art", "operator": "like", "value": "PROD%" }` |
-| `in`     | `IN (...)`    | JSON array          | `{ "column": "zone", "operator": "in", "value": ["Z1","Z2","Z3"] }` |
+| Operator      | SQL equivalent      | Value type              | Example                                                              |
+|---------------|---------------------|-------------------------|----------------------------------------------------------------------|
+| `eq`          | `=`                 | string / number         | `{ "column": "dlg", "operator": "eq", "value": "DLG01" }`           |
+| `neq`         | `!=`                | string / number         | `{ "column": "etat", "operator": "neq", "value": 0 }`               |
+| `gt`          | `>`                 | number / date           | `{ "column": "ttc", "operator": "gt", "value": 1000 }`              |
+| `gte`         | `>=`                | number / date           | `{ "column": "date", "operator": "gte", "value": "2024-01-01" }`    |
+| `lt`          | `<`                 | number / date           | `{ "column": "qte", "operator": "lt", "value": 5 }`                 |
+| `lte`         | `<=`                | number / date           | `{ "column": "date", "operator": "lte", "value": "2024-12-31" }`    |
+| `between`     | `BETWEEN ? AND ?`   | `[min, max]` array      | `{ "column": "date", "operator": "between", "value": ["2024-01-01","2024-12-31"] }` |
+| `like`        | `LIKE ?`            | string with `%`         | `{ "column": "art", "operator": "like", "value": "PROD%" }`         |
+| `notLike`     | `NOT LIKE ?`        | string with `%`         | `{ "column": "art", "operator": "notLike", "value": "%TEST%" }`     |
+| `startsWith`  | `LIKE 'x%'`         | string (no `%` needed)  | `{ "column": "art", "operator": "startsWith", "value": "CREME" }`   |
+| `endsWith`    | `LIKE '%x'`         | string (no `%` needed)  | `{ "column": "art", "operator": "endsWith", "value": "500MG" }`     |
+| `contains`    | `LIKE '%x%'`        | string (no `%` needed)  | `{ "column": "art", "operator": "contains", "value": "AMOX" }`      |
+| `in`          | `IN (...)`          | JSON array              | `{ "column": "zone", "operator": "in", "value": ["Z1","Z2","Z3"] }` |
+| `notIn`       | `NOT IN (...)`      | JSON array              | `{ "column": "dlg", "operator": "notIn", "value": ["DLG99"] }`      |
+| `isNull`      | `IS NULL`           | *(no value)*            | `{ "column": "fam", "operator": "isNull" }`                         |
+| `isNotNull`   | `IS NOT NULL`       | *(no value)*            | `{ "column": "dlg", "operator": "isNotNull" }`                      |
 
 All filters are combined with `AND`.
 
@@ -316,7 +324,8 @@ All filters are combined with `AND`.
 
 ## 7. Aggregating Table Data (GROUP BY + Metrics)
 
-Use this endpoint when the KPI or Analysis agent needs aggregated results — totals, averages, counts broken down by dimension. This is the primary endpoint for KPI computation.
+The aggregate endpoint is the primary tool for KPIs, totals, rankings, breakdowns, and period analysis.
+It supports computed date grouping, DISTINCT metrics, post-aggregation HAVING filters, and multi-column sorting.
 
 **Request**
 ```
@@ -325,46 +334,83 @@ Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
-**Request Body**
+### 7.1 Request Fields
+
+| Field                 | Required         | Description                                                                          |
+|-----------------------|------------------|--------------------------------------------------------------------------------------|
+| `groupBy`             | At least one of  | Plain column names to group by. Example: `["dlg", "zone"]`                          |
+| `groupByExpressions`  | groupBy or this  | Computed date grouping — see section 7.2                                             |
+| `metrics`             | Yes              | Aggregation specs. Each needs `column`, `function`, `alias`, optional `distinct`    |
+| `filters`             | No               | Pre-aggregation filters (WHERE clause) — same operators as `/query`                  |
+| `having`              | No               | Post-aggregation filters (HAVING clause) — reference metric aliases                  |
+| `sorts`               | No               | Multi-column sort array `[{column, direction}, ...]`                                 |
+| `sort`                | No               | Single-column sort (legacy — overridden by `sorts` if both are present)              |
+| `page`                | No               | Zero-based page (default 0)                                                          |
+| `size`                | No               | Rows per page, max 500 (default 20)                                                  |
+
+### 7.2 Aggregate Functions
+
+| Function | Description           | `column` value     | `distinct` |
+|----------|-----------------------|--------------------|------------|
+| `SUM`    | Sum of values         | column name        | optional   |
+| `COUNT`  | Count rows            | `"*"` or column    | optional   |
+| `AVG`    | Average of values     | column name        | —          |
+| `MIN`    | Minimum value         | column name        | —          |
+| `MAX`    | Maximum value         | column name        | —          |
+
+When `distinct: true`:
+- `COUNT(DISTINCT col)` — counts unique values
+- `SUM(DISTINCT col)` — sums unique values
+- Cannot be combined with `COUNT(*)`
+
+### 7.3 Computed Date Grouping (groupByExpressions)
+
+Group by a date function applied to any date column.
+Supported functions: `YEAR`, `MONTH`, `WEEK`, `DAY`, `QUARTER`, `DATE`
+
 ```json
 {
-  "groupBy": ["dlg", "zone"],
-  "metrics": [
-    { "column": "ttc",  "function": "SUM",   "alias": "total_ttc" },
-    { "column": "qte",  "function": "SUM",   "alias": "total_qte" },
-    { "column": "*",    "function": "COUNT", "alias": "nb_lignes" },
-    { "column": "ttc",  "function": "AVG",   "alias": "avg_ttc"   }
-  ],
-  "filters": [
-    { "column": "date", "operator": "gte", "value": "2024-01-01" },
-    { "column": "date", "operator": "lte", "value": "2024-03-31" }
-  ],
-  "sort": { "column": "total_ttc", "direction": "desc" },
-  "page": 0,
-  "size": 50
+  "column":   "date",
+  "function": "MONTH",
+  "alias":    "mois"
 }
 ```
+→ generates `MONTH(date) AS mois` in SELECT and GROUP BY.
 
-| Field     | Required | Description                                                            |
-|-----------|----------|------------------------------------------------------------------------|
-| `groupBy` | Yes      | One or more columns to group by. Must be in the table's visible columns|
-| `metrics` | Yes      | Aggregation specs. Each needs `function`, `alias`, and usually `column`|
-| `filters` | No       | Same filter syntax as `/query` — applied before grouping (WHERE)       |
-| `sort`    | No       | Sort by a `groupBy` column name or a metric `alias`                    |
-| `page`    | No       | Zero-based page (default 0)                                            |
-| `size`    | No       | Rows per page, max 500 (default 20)                                    |
+You can mix `groupBy` and `groupByExpressions` in the same request:
+```json
+"groupBy":             ["dlg"],
+"groupByExpressions":  [{ "column": "date", "function": "YEAR", "alias": "annee" }]
+```
+→ groups by delegate AND year simultaneously.
 
-### 7.1 Aggregate Functions
+### 7.4 HAVING — Post-Aggregation Filter
 
-| Function | Description          | `column` value |
-|----------|----------------------|----------------|
-| `SUM`    | Sum of values        | column name    |
-| `COUNT`  | Count rows           | `"*"` or null  |
-| `AVG`    | Average of values    | column name    |
-| `MIN`    | Minimum value        | column name    |
-| `MAX`    | Maximum value        | column name    |
+Filter on computed metric values after grouping. Same operator syntax as `filters`.
+Column must reference a metric alias, a raw `groupBy` column, or a computed alias.
 
-**Response** — same structure as query/read endpoints:
+```json
+"having": [
+  { "column": "ca_total", "operator": "gte", "value": 50000 }
+]
+```
+
+**Important for pagination with HAVING:** When `having` is present, `totalRows` reflects the count
+after HAVING filtering, not the total un-filtered group count.
+
+### 7.5 Multi-Column Sort (sorts)
+
+```json
+"sorts": [
+  { "column": "annee",    "direction": "asc"  },
+  { "column": "ca_total", "direction": "desc" }
+]
+```
+Overrides the legacy single-column `sort` field when both are present.
+
+### 7.6 Response
+
+Same structure as query/read endpoints:
 ```json
 {
   "table":      "ca_tot_vente",
@@ -372,17 +418,17 @@ Content-Type: application/json
   "size":       50,
   "totalRows":  12,
   "totalPages": 1,
-  "columns":    ["dlg", "zone", "total_ttc", "total_qte", "nb_lignes", "avg_ttc"],
+  "columns":    ["dlg", "annee", "ca_total", "nb_clients"],
   "rows": [
-    { "dlg": "DLG01", "zone": "Z1", "total_ttc": 125000.000, "total_qte": 980, "nb_lignes": 142, "avg_ttc": 880.28 },
-    { "dlg": "DLG02", "zone": "Z2", "total_ttc":  98500.000, "total_qte": 760, "nb_lignes": 115, "avg_ttc": 856.52 }
+    { "dlg": "DLG01", "annee": 2024, "ca_total": 125000.0, "nb_clients": 48 },
+    { "dlg": "DLG02", "annee": 2024, "ca_total":  98500.0, "nb_clients": 35 }
   ]
 }
 ```
 
-### 7.2 Aggregate Usage Examples
+### 7.7 Usage Examples
 
-**Total sales per delegate for Q1 2024:**
+**Total CA per delegate for Q1 2024, ranked:**
 ```json
 POST /api/data/aggregate/ca_tot_vente
 {
@@ -392,24 +438,77 @@ POST /api/data/aggregate/ca_tot_vente
     { "column": "*",   "function": "COUNT", "alias": "nb_ventes" }
   ],
   "filters": [
-    { "column": "date", "operator": "gte", "value": "2024-01-01" },
-    { "column": "date", "operator": "lte", "value": "2024-03-31" }
+    { "column": "date", "operator": "between", "value": ["2024-01-01", "2024-03-31"] }
   ],
   "sort": { "column": "ca_ttc", "direction": "desc" }
 }
 ```
 
-**Monthly sales volume per product family:**
+**Monthly CA breakdown for 2023:**
 ```json
 POST /api/data/aggregate/ca_tot_vente
 {
-  "groupBy": ["fam"],
-  "metrics": [
-    { "column": "ttc", "function": "SUM", "alias": "total_ttc" },
-    { "column": "qte", "function": "SUM", "alias": "total_qte" },
-    { "column": "ttc", "function": "AVG", "alias": "prix_moyen" }
+  "groupByExpressions": [
+    { "column": "date", "function": "MONTH", "alias": "mois" }
   ],
-  "sort": { "column": "total_ttc", "direction": "desc" }
+  "metrics": [
+    { "column": "ttc", "function": "SUM", "alias": "ca_total" },
+    { "column": "qte", "function": "SUM", "alias": "qte_total" }
+  ],
+  "filters": [
+    { "column": "date", "operator": "between", "value": ["2023-01-01", "2023-12-31"] }
+  ],
+  "sort": { "column": "mois", "direction": "asc" }
+}
+```
+
+**CA by product by month in 2023:**
+```json
+POST /api/data/aggregate/ca_tot_vente
+{
+  "groupBy": ["art"],
+  "groupByExpressions": [
+    { "column": "date", "function": "YEAR",  "alias": "annee" },
+    { "column": "date", "function": "MONTH", "alias": "mois"  }
+  ],
+  "metrics": [
+    { "column": "ttc", "function": "SUM", "alias": "ca" }
+  ],
+  "filters": [
+    { "column": "date", "operator": "between", "value": ["2023-01-01", "2023-12-31"] }
+  ],
+  "sorts": [
+    { "column": "annee", "direction": "asc" },
+    { "column": "mois",  "direction": "asc" },
+    { "column": "ca",    "direction": "desc" }
+  ]
+}
+```
+
+**Unique clients per delegate (DISTINCT COUNT):**
+```json
+POST /api/data/aggregate/ca_tot_vente
+{
+  "groupBy": ["dlg"],
+  "metrics": [
+    { "column": "cl", "function": "COUNT", "alias": "nb_clients", "distinct": true },
+    { "column": "ttc", "function": "SUM",  "alias": "ca_total" }
+  ]
+}
+```
+
+**Top delegates with CA > 100 000 (HAVING):**
+```json
+POST /api/data/aggregate/ca_tot_vente
+{
+  "groupBy": ["dlg"],
+  "metrics": [
+    { "column": "ttc", "function": "SUM", "alias": "ca_total" }
+  ],
+  "having": [
+    { "column": "ca_total", "operator": "gte", "value": 100000 }
+  ],
+  "sort": { "column": "ca_total", "direction": "desc" }
 }
 ```
 
@@ -513,7 +612,7 @@ All errors return a JSON object with an `error` key.
 
 **Example 400**
 ```json
-{ "error": "Opérateur invalide : contains" }
+{ "error": "Opérateur invalide : unknown_op" }
 ```
 
 **Example 400 (IN with wrong value type)**
@@ -530,11 +629,19 @@ All errors return a JSON object with an `error` key.
 2. GET  /api/data/schema         → load full schema (modules → tables → typed columns)
 3. Based on user question:
      a. Identify relevant table(s) from schema
-     b. KPI / summary question?
-           → POST /api/data/aggregate/{table} with groupBy + metrics + filters
-     c. Raw rows / detailed listing?
+     b. KPI / summary / ranking / period breakdown?
+           → POST /api/data/aggregate/{table}
+             • groupBy or groupByExpressions (YEAR/MONTH/WEEK/DAY/QUARTER/DATE)
+             • metrics with optional distinct:true
+             • filters (pre-aggregation WHERE)
+             • having (post-aggregation HAVING on metric aliases)
+             • sorts (multi-column ordering)
+     c. Period comparison / growth rate?
+           → Make two aggregate calls (one per period) and merge client-side,
+             or use the compare_periods agent tool which does this automatically.
+     d. Raw rows / detailed listing / search?
            → POST /api/data/query/{table} with filters + sort
-     d. If totalPages > 1, paginate with page=1, page=2, ... until done
+     e. If totalPages > 1, paginate with page=1, page=2, ... until done
 4. When accessToken expires → POST /api/auth/refresh → continue
 ```
 
@@ -563,6 +670,11 @@ All errors return a JSON object with an `error` key.
 - **Column names in filters and sort must exactly match** the column names returned by `/api/data/schema`
 - **All filter conditions are AND-combined** — there is no OR at the moment
 - **Date values must be strings** in `YYYY-MM-DD` format
-- **The `like` operator** requires the `%` wildcard explicitly: `"PROD%"` matches anything starting with PROD
-- **The `in` operator** value must be a JSON array, never a single value
+- **The `like` / `notLike` operators** require the `%` wildcard explicitly: `"PROD%"` matches anything starting with PROD
+- **The `startsWith` / `endsWith` / `contains` operators** do NOT need `%` — the backend adds them automatically
+- **The `in` / `notIn` operators** value must be a JSON array, never a single value
+- **The `between` operator** value must be a two-element array: `[start, end]` (inclusive)
+- **The `isNull` / `isNotNull` operators** do not require a `value` field
+- **aggregate `groupBy` or `groupByExpressions`**: at least one is required — the endpoint will reject a request with neither
+- **HAVING columns** must reference a metric alias, a raw `groupBy` column, or a computed `groupByExpressions` alias
 - **Sensitive columns** (`grm_users.password`, `grm_users.pass`) are never returned regardless of role

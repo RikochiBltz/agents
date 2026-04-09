@@ -67,7 +67,6 @@ class DataResult:
     timing: list[tuple] = field(default_factory=list)  # [(kind, label, ms)]
     rag_tables: list[str] = field(default_factory=list)
     clarified_question: str = ""
-    kpi_spec: str = ""                # passed through from Orchestrator → KPI Agent
     analysis_spec: str = ""           # passed through from Orchestrator → Analysis Agent
     analysis: str = ""                # explanation produced by Analysis Agent
 
@@ -297,17 +296,27 @@ class DataAgent:
                 return b.query_table(args["table"], body)
 
             elif name == "aggregate_table":
-                body = {
-                    "groupBy": args["groupBy"],
+                body: dict = {
                     "metrics": args["metrics"],
                     "page":    args.get("page", 0),
                     "size":    args.get("size", 50),
                 }
+                if args.get("groupBy"):
+                    body["groupBy"] = args["groupBy"]
+                if args.get("groupByExpressions"):
+                    body["groupByExpressions"] = args["groupByExpressions"]
                 if args.get("filters"):
                     body["filters"] = args["filters"]
-                if args.get("sort"):
+                if args.get("having"):
+                    body["having"] = args["having"]
+                if args.get("sorts"):
+                    body["sorts"] = args["sorts"]
+                elif args.get("sort"):
                     body["sort"] = args["sort"]
                 return b.aggregate_table(args["table"], body)
+
+            elif name == "compare_periods":
+                return self._compare_periods(args)
 
             elif name == "browse_table":
                 return b.browse_table(
@@ -323,6 +332,84 @@ class DataAgent:
             return {"error": str(e)}
         except Exception as e:
             return {"error": f"Unexpected error in {name}: {e}"}
+
+    def _compare_periods(self, args: dict) -> dict:
+        """Execute two aggregate calls and merge them side-by-side with growth %."""
+        table       = args["table"]
+        date_col    = args["date_column"]
+        period_a    = args["period_a"]
+        period_b    = args["period_b"]
+        group_cols  = args.get("groupBy", [])
+        metrics     = args.get("metrics", [])
+        extra       = args.get("extra_filters", [])
+        sort_by     = args.get("sort_by")
+        sort_dir    = args.get("sort_dir", "desc")
+        size        = args.get("size", 50)
+
+        def _body(period: dict) -> dict:
+            date_filters = [
+                {"column": date_col, "operator": "gte", "value": period["date_start"]},
+                {"column": date_col, "operator": "lte", "value": period["date_end"]},
+            ]
+            b: dict = {
+                "groupBy": group_cols,
+                "metrics": metrics,
+                "filters": date_filters + extra,
+                "page":    0,
+                "size":    size,
+            }
+            if sort_by:
+                b["sort"] = {"column": sort_by, "direction": sort_dir}
+            return b
+
+        res_a = self.backend.aggregate_table(table, _body(period_a))
+        res_b = self.backend.aggregate_table(table, _body(period_b))
+
+        if isinstance(res_a, dict) and "error" in res_a:
+            return res_a
+        if isinstance(res_b, dict) and "error" in res_b:
+            return res_b
+
+        la = period_a["label"]
+        lb = period_b["label"]
+        rows_a = {tuple(r.get(g) for g in group_cols): r for r in (res_a.get("rows") or [])}
+
+        merged = []
+        for rb in (res_b.get("rows") or []):
+            key = tuple(rb.get(g) for g in group_cols)
+            ra  = rows_a.get(key, {})
+            row: dict = {g: rb.get(g) for g in group_cols}
+            for m in metrics:
+                alias = m["alias"]
+                val_a = float(ra.get(alias) or 0)
+                val_b = float(rb.get(alias) or 0)
+                row[f"{alias}_{la}"] = val_a
+                row[f"{alias}_{lb}"] = val_b
+                row[f"{alias}_growth_pct"] = (
+                    round((val_b - val_a) / abs(val_a) * 100, 2) if val_a else None
+                )
+            merged.append(row)
+
+        if sort_by and merged:
+            reverse = sort_dir == "desc"
+            merged.sort(
+                key=lambda r: (r.get(sort_by) is None, r.get(sort_by) or 0),
+                reverse=reverse,
+            )
+
+        columns = list(group_cols)
+        for m in metrics:
+            columns += [f"{m['alias']}_{la}", f"{m['alias']}_{lb}", f"{m['alias']}_growth_pct"]
+
+        return {
+            "table":      table,
+            "period_a":   la,
+            "period_b":   lb,
+            "totalRows":  len(merged),
+            "totalPages": 1,
+            "columns":    columns,
+            "rows":       merged,
+        }
 
     def _search_schema(self, keyword: str) -> list[dict]:
         if not self._schema or not keyword:
@@ -397,31 +484,82 @@ class DataAgent:
 ## TOOL SELECTION
 | Situation | Tool |
 |-----------|------|
-| KPI, total, average, ranking | aggregate_table |
-| Detailed rows, search | query_table |
-| Preview table | browse_table |
+| KPI, total, average, ranking, breakdown | aggregate_table |
+| Year-over-year / period comparison | compare_periods |
+| Detailed rows, search, listings | query_table |
+| Preview table content | browse_table |
 | Unknown table columns | get_table_columns first |
 
-## BACKEND CONSTRAINTS — READ CAREFULLY
-- aggregate_table: groupBy is MANDATORY — always provide at least one column.
-- groupBy: plain column names only — YEAR(), MONTH(), DATE_FORMAT() NOT supported.
+## AGGREGATE CAPABILITIES
+
+### Computed date grouping (groupByExpressions)
+Group by YEAR, MONTH, WEEK, DAY, QUARTER, or DATE of any date column — no pre-computed tables needed.
+Example — CA by month in 2023:
+  aggregate_table(
+    table="ca_tot_vente",
+    groupByExpressions=[
+      {{"column":"date","function":"YEAR","alias":"annee"}},
+      {{"column":"date","function":"MONTH","alias":"mois"}}
+    ],
+    metrics=[{{"column":"ttc","function":"SUM","alias":"ca_total"}}],
+    filters=[{{"column":"date","operator":"between","value":["2023-01-01","2023-12-31"]}}],
+    sorts=[{{"column":"annee","direction":"asc"}},{{"column":"mois","direction":"asc"}}]
+  )
+
+### Combining plain groupBy with groupByExpressions
+You can combine both: groupBy=["dlg"] with groupByExpressions=[YEAR(date)] gives CA per delegate per year.
+
+### HAVING — post-aggregation filter
+Filter on metric values AFTER grouping. Reference the metric alias.
+Example — delegates with CA > 50 000:
+  having=[{{"column":"ca_total","operator":"gte","value":50000}}]
+
+### DISTINCT metrics
+COUNT(DISTINCT col) counts unique values. SUM(DISTINCT col) sums without duplicates.
+Example — unique clients per delegate:
+  metrics=[{{"column":"cl","function":"COUNT","alias":"nb_clients","distinct":true}}]
+
+### Multi-column sort (sorts)
+  sorts=[{{"column":"annee","direction":"asc"}},{{"column":"ca_total","direction":"desc"}}]
+
+### Grand total strategy
+For "total CA of year X" with no other dimension:
+  aggregate_table(ca_tot_vente, groupByExpressions=[YEAR(date) AS annee],
+                  metrics=[SUM(ttc) AS ca], filters=[date between ["X-01-01","X-12-31"]])
+  → one row per year = the grand total.
+
+## COMPARE PERIODS — period-over-period comparison
+For "CA 2023 vs 2024" or any growth rate question, use compare_periods instead of two separate calls.
+Returns merged rows with columns: <dimension>, <metric>_2023, <metric>_2024, <metric>_growth_pct.
+Example:
+  compare_periods(
+    table="ca_tot_vente",
+    date_column="date",
+    period_a={{"label":"2023","date_start":"2023-01-01","date_end":"2023-12-31"}},
+    period_b={{"label":"2024","date_start":"2024-01-01","date_end":"2024-12-31"}},
+    groupBy=["dlg"],
+    metrics=[{{"column":"ttc","function":"SUM","alias":"ca"}}],
+    sort_by="ca_2024",
+    sort_dir="desc"
+  )
+
+## FILTER OPERATORS (all supported)
+| Operator | Meaning | Value |
+|----------|---------|-------|
+| eq / neq | equals / not equals | string or number |
+| gt / gte / lt / lte | comparison | number or date string |
+| between | inclusive range | [min, max] array |
+| like / notLike | SQL LIKE (use % wildcard) | string |
+| startsWith / endsWith / contains | string matching (no % needed) | string |
+| in / notIn | in list | JSON array |
+| isNull / isNotNull | null check | no value needed |
+
+## CONSTRAINTS
 - Filters: AND-only, no OR/NOT.
 - Dates: YYYY-MM-DD strings.
-- `in` operator value must be a JSON array.
 - Max 500 rows per request.
-
-## GRAND TOTAL STRATEGY (no groupBy dimension needed)
-For "total CA of year X" with no grouping dimension:
-  → aggregate_table(ca_qte_prd_year_gro, groupBy=["year"], metrics=[SUM(ca)], filters=[year eq X])
-  → returns one row per year = the grand total for that year.
-For "total CA of a date range":
-  → aggregate_table(ca_tot_vente, groupBy=["fam"], metrics=[SUM(ttc)], filters=[date gte ..., date lte ...])
-  → sum all returned rows client-side, or present per-family breakdown.
-
-## YEAR / MONTH DATA STRATEGY
-- Yearly pre-computed: ca_qte_prd_year_gro (groupBy year), ca_zone_year_fam (groupBy zone+year)
-- Monthly pre-computed: ca_prd_month (has year and month columns)
-- If a pre-computed table returns 0 rows → fall back to ca_tot_vente with date range filters.
+- `in` / `notIn` value must be a JSON array.
+- `between` value must be [start, end] array.
 
 {key_columns}
 
