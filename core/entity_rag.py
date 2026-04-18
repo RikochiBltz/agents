@@ -233,10 +233,15 @@ class EntityRAG:
         """
         q = query.lower()
         lookup_signals = [
-            "qui est", "who is", "cherche", "find", "search",
-            "info sur", "information sur", "fiche", "coordonnées",
-            "numéro", "téléphone", "email", "adresse",
-            "existe", "existe-t-il", "trouve",
+            # French
+            "qui est", "cherche", "trouve", "info sur", "information sur",
+            "fiche", "coordonnées", "numéro", "téléphone", "email", "adresse",
+            "existe", "existe-t-il", "montre", "donne moi", "parle moi",
+            "dis moi", "profil", "détails sur", "renseigne",
+            # English
+            "who is", "find", "search", "info about", "information about",
+            "tell me about", "give me information", "details about",
+            "show me", "look up", "lookup", "profile of",
         ]
         analysis_signals = [
             "vente", "ca ", "chiffre", "visite", "commande", "solde",
@@ -248,6 +253,46 @@ class EntityRAG:
         if has_analysis:
             return False
         return has_lookup
+
+    def get_doctor_hits(self, query: str, top_k: int = 5) -> list[dict]:
+        """
+        Returns raw doctor records matching the query (without formatting).
+        Used by DataAgent to build a direct registry result.
+        """
+        q_tokens = _tokens(query)
+        if not q_tokens:
+            return []
+        hits = self._rank(self._doctors, q_tokens, min_score=2, top_k=top_k)
+        return [d for _, d in hits]
+
+    def doctor_result(self, query: str, top_k: int = 5) -> dict | None:
+        """
+        Returns a DataAgent-compatible result dict built from registry data.
+        Returns None if no doctors match.
+        Used to short-circuit DB lookup for doctor profile queries.
+        """
+        hits = self.get_doctor_hits(query, top_k=top_k)
+        if not hits:
+            return None
+        columns = ["nom", "prenom", "specialite", "ville", "crom", "ordre"]
+        rows = [
+            {
+                "nom":        d["nom"],
+                "prenom":     d["prenom"],
+                "specialite": d["specialite"],
+                "ville":      d["ville"],
+                "crom":       d["crom"],
+                "ordre":      d["ordre"],
+            }
+            for d in hits
+        ]
+        return {
+            "source":     "national_registry",
+            "totalRows":  len(rows),
+            "totalPages": 1,
+            "columns":    columns,
+            "rows":       rows,
+        }
 
     def search(self, query: str, doctor_top_k: int = 5, product_top_k: int = 5) -> str:
         """
@@ -296,8 +341,8 @@ class EntityRAG:
         lines = [
             "## KNOWN ENTITIES (resolved from national registry)\n",
             "> These records come from an external registry, NOT from the CRM database.",
-            "> When the user mentions a doctor by name, use the **exact Nom/Prénom** listed",
-            "> here for any DB name filters — it is the canonical spelling.",
+            "> Use the exact **Nom/Prénom** listed here for any DB name filters",
+            "> — it is the canonical spelling.",
             "> The CRM data (sales, visits, balances) is still in the database and must be queried.\n",
         ]
 

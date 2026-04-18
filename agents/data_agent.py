@@ -147,6 +147,17 @@ class DataAgent:
             yield local
             return
 
+        # ── Short-circuit: doctor profile from registry (no DB needed) ──
+        if (
+            self.entity_rag
+            and self.entity_rag._is_person_lookup(question)
+        ):
+            registry_result = self.entity_rag.doctor_result(question)
+            if registry_result is not None:
+                yield "__rag__:0:"
+                yield f"__raw_result__:{json.dumps(registry_result, ensure_ascii=False, default=str)}"
+                return
+
         rag_results, rag_context = self._rag_context(question)
         yield f"__rag__:{len(rag_results)}:{','.join(r['table'] for r in rag_results)}"
 
