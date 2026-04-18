@@ -19,7 +19,6 @@ from openai import OpenAI
 
 import config
 from core.backend_client import BackendClient
-from core.entity_rag import EntityRAG
 from core.rag import TableRAG
 from core.tools import TOOLS, format_tool_result
 
@@ -73,15 +72,9 @@ class DataResult:
 
 
 class DataAgent:
-    def __init__(
-        self,
-        client: BackendClient,
-        rag: TableRAG | None = None,
-        entity_rag: EntityRAG | None = None,
-    ):
+    def __init__(self, client: BackendClient, rag: TableRAG | None = None):
         self.backend = client
         self.rag = rag
-        self.entity_rag = entity_rag
         self._llm = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY)
         self._schema: dict | None = None
         self._module_table_map: str = ""
@@ -147,24 +140,11 @@ class DataAgent:
             yield local
             return
 
-        # ── Short-circuit: doctor profile from registry (no DB needed) ──
-        if (
-            self.entity_rag
-            and self.entity_rag._is_person_lookup(question)
-        ):
-            registry_result = self.entity_rag.doctor_result(question)
-            if registry_result is not None:
-                yield "__rag__:0:"
-                yield f"__raw_result__:{json.dumps(registry_result, ensure_ascii=False, default=str)}"
-                return
-
         rag_results, rag_context = self._rag_context(question)
         yield f"__rag__:{len(rag_results)}:{','.join(r['table'] for r in rag_results)}"
 
-        entity_context = self._entity_context(question)
-
         messages: list[dict] = [
-            {"role": "system", "content": self._system_prompt(rag_context, entity_context)},
+            {"role": "system", "content": self._system_prompt(rag_context)},
             {"role": "user",   "content": question},
         ]
 
@@ -460,16 +440,6 @@ class DataAgent:
                     })
         return results
 
-    # ── Entity RAG ────────────────────────────────────────────────────
-
-    def _entity_context(self, question: str) -> str:
-        if not self.entity_rag:
-            return ""
-        try:
-            return self.entity_rag.search(question)
-        except Exception:
-            return ""
-
     # ── RAG ───────────────────────────────────────────────────────────
 
     def _rag_context(self, question: str) -> tuple[list[dict], str]:
@@ -510,7 +480,7 @@ class DataAgent:
                 )
         return "\n".join(lines)
 
-    def _system_prompt(self, rag_context: str = "", entity_context: str = "") -> str:
+    def _system_prompt(self, rag_context: str = "") -> str:
         table_context = rag_context if rag_context else (
             "## ALL MODULES AND TABLES\n" + self._module_table_map
         )
@@ -524,9 +494,6 @@ class DataAgent:
    - If correct → respond with exactly: VERIFIED
    - If wrong (0 rows, error, wrong columns) → call a different tool and retry.
 4. For tables NOT listed in KEY TABLE COLUMNS, call get_table_columns first.
-5. If KNOWN ENTITIES section is present: use the exact **Nom** and **Prénom** from that
-   section for any name-based DB filters — it is the canonical spelling, not the user's
-   possibly misspelled version.
 
 ## TOOL SELECTION
 | Situation | Tool |
@@ -628,7 +595,6 @@ Use compare_periods when there is a dimension to group by.
 - `in` / `notIn` value must be a JSON array.
 - `between` value must be [start, end] array.
 
-{entity_context}
 {key_columns}
 
 {table_context}

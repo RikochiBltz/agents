@@ -9,6 +9,7 @@ Receives the raw user question and produces a full routing decision:
 Pipelines:
   1 → DataAgent → Analysis Agent → Response
   2 → Report Agent → Response
+  3 → Doctor Agent → Response
 """
 from __future__ import annotations
 
@@ -50,14 +51,18 @@ _ROUTE_TOOL = {
                 },
                 "pipeline": {
                     "type": "integer",
-                    "enum": [1, 2],
+                    "enum": [1, 2, 3],
                     "description": (
                         "1 = DataAgent + Analysis: user wants any data query, KPI, "
                         "ranking, total, trend, comparison, or analysis of company data. "
                         "2 = Report Agent: user wants help with field visit reports — "
                         "reformulating notes, checking structure, identifying missing points, "
                         "evaluating a draft, getting a report example, asking product questions "
-                        "(dosage, indication, composition), or any visit-report writing assistance."
+                        "(dosage, indication, composition), or any visit-report writing assistance. "
+                        "3 = Doctor Agent: user wants profile information about a specific doctor "
+                        "(name, specialty, city, CROM, order number) OR wants to know which products "
+                        "to recommend for a doctor's specialty. Use this when the question is about "
+                        "WHO a doctor is, not about CRM data (sales, visits, balances) for that doctor."
                     ),
                 },
                 "reasoning": {
@@ -154,6 +159,23 @@ Pipeline 2 — Report Agent
       → pipeline 2
     "évalue mon rapport : [draft text]"
       → pipeline 2
+
+Pipeline 3 — Doctor Agent
+  Use when the user asks about a specific doctor's identity or profile:
+  • Who is a specific doctor (name, specialty, city, CROM, order number)
+  • What products to recommend for a doctor's specialty
+  • Doctor contact or registration details
+
+  Key distinction:
+    "info sur Dr. X"           → pipeline 3  (profile lookup)
+    "CA des visites chez Dr. X" → pipeline 1  (CRM data query)
+    "visite chez Dr. X, notes" → pipeline 2  (report writing)
+
+  Examples:
+    "give me information about doctor syrine azza mannoubi"  → pipeline 3
+    "qui est Dr. Ben Ali cardiologue Tunis"                  → pipeline 3
+    "quels produits recommander à un cardiologue ?"          → pipeline 3
+    "info sur le médecin Slim Pneumologue Sfax"              → pipeline 3
 
 ## DATA QUERY RULES
 - Write a clarified, natural-language question for the DataAgent.

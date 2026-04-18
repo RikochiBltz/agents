@@ -40,5 +40,10 @@ EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 PDF_PATH: str = os.getenv("PDF_PATH", "vital_dictionnaire_donnees_complet.pdf")
 
 # ── Entity RAG (doctors + products) ──────────────────────────────────
-ENTITY_DOCTORS_CSV: str  = os.getenv("ENTITY_DOCTORS_CSV",  r"C:\python pi\doctors.csv")
+ENTITY_DOCTORS_CSV: str   = os.getenv("ENTITY_DOCTORS_CSV",   r"C:\python pi\doctors.csv")
 ENTITY_PRODUCTS_JSON: str = os.getenv("ENTITY_PRODUCTS_JSON", r"C:\python pi\prod_vital.json")
+
+# ── Doctor Agent LLM (small local model) ─────────────────────────────
+DOCTOR_BASE_URL: str = os.getenv("DOCTOR_BASE_URL", "http://localhost:11434/v1")
+DOCTOR_API_KEY: str  = os.getenv("DOCTOR_API_KEY",  "ollama")
+DOCTOR_MODEL: str    = os.getenv("DOCTOR_MODEL",    "llama3.1:8b")

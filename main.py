@@ -27,12 +27,14 @@ from agents.orchestrator import Orchestrator, RoutingDecision
 from agents.data_agent import DataAgent, DataResult
 from agents.analysis_agent import AnalysisAgent
 from agents.report_agent import ReportAgent
+from agents.doctor_agent import DoctorAgent
 
 console = Console()
 
 PIPELINE_LABELS = {
     1: ("Orchestrator", "DataAgent", "Analysis Agent", "Response"),
     2: ("Orchestrator", "Report Agent", "Response"),
+    3: ("Orchestrator", "Doctor Agent", "Response"),
 }
 
 TOOL_LABELS = {
@@ -151,6 +153,7 @@ def run_pipeline(
     data_agent: DataAgent,
     analysis_agent: AnalysisAgent,
     report_agent: ReportAgent,
+    doctor_agent: DoctorAgent | None = None,
 ) -> None:
     total_start = time.perf_counter()
 
@@ -184,7 +187,7 @@ def run_pipeline(
 
     if routing.pipeline == 1:
         final = _run_data_pipeline(routing, data_agent, analysis_agent, orchestrator_ms)
-    else:
+    elif routing.pipeline == 2:
         t0 = time.perf_counter()
         with console.status(
             f"[magenta]Report Agent ({config.REPORT_MODEL})...[/magenta]",
@@ -195,6 +198,18 @@ def run_pipeline(
         final.timing = [
             ("orchestrator", "Orchestrator", orchestrator_ms),
             ("report",       "Report Agent", report_ms),
+        ]
+    else:  # pipeline == 3
+        t0 = time.perf_counter()
+        with console.status(
+            f"[blue]Doctor Agent ({config.DOCTOR_MODEL})...[/blue]",
+            spinner="dots",
+        ):
+            final = doctor_agent.process(routing.raw_question) if doctor_agent else DataResult(error="Doctor Agent not available")
+        doctor_ms = int((time.perf_counter() - t0) * 1000)
+        final.timing = [
+            ("orchestrator", "Orchestrator", orchestrator_ms),
+            ("doctor",       "Doctor Agent", doctor_ms),
         ]
 
     # ── Step 3: Display result ────────────────────────────────────────
@@ -521,13 +536,16 @@ def main():
         console.print(f"[red]Cannot connect to backend: {e}[/red]")
         sys.exit(1)
 
-    rag = setup_rag()
+    rag        = setup_rag()
     entity_rag = _setup_entity_rag()
 
     orchestrator   = Orchestrator()
-    data_agent     = DataAgent(client, rag=rag, entity_rag=entity_rag)
+    data_agent     = DataAgent(client, rag=rag)
     analysis_agent = AnalysisAgent()
     report_agent   = ReportAgent()
+    doctor_agent   = DoctorAgent(entity_rag) if entity_rag else None
+    if doctor_agent is None:
+        console.print("[yellow]Doctor Agent disabled — entity RAG not loaded[/yellow]")
 
     try:
         load_schema(data_agent)
@@ -559,6 +577,7 @@ def main():
                 data_agent,
                 analysis_agent,
                 report_agent,
+                doctor_agent,
             )
         except KeyboardInterrupt:
             console.print("\n[dim]Interrupted.[/dim]")
