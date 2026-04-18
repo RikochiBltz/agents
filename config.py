@@ -20,10 +20,6 @@ ANALYSIS_BASE_URL: str = os.getenv("ANALYSIS_BASE_URL", "http://localhost:11434/
 ANALYSIS_API_KEY: str = os.getenv("ANALYSIS_API_KEY", "ollama")
 ANALYSIS_MODEL: str = os.getenv("ANALYSIS_MODEL", "gpt-oss:20b-cloud")
 
-# ── Auth ──────────────────────────────────────────────────────────────
-BACKEND_EMAIL: str = os.getenv("BACKEND_EMAIL", "")
-BACKEND_PASSWORD: str = os.getenv("BACKEND_PASSWORD", "")
-
 # ── Report Agent LLM ─────────────────────────────────────────────────
 REPORT_BASE_URL: str = os.getenv("REPORT_BASE_URL", "http://localhost:11434/v1")
 REPORT_API_KEY: str  = os.getenv("REPORT_API_KEY",  "ollama")
@@ -42,3 +38,7 @@ REPORT_FAISS_METADATA: str = os.getenv(
 # ── RAG ───────────────────────────────────────────────────────────────
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 PDF_PATH: str = os.getenv("PDF_PATH", "vital_dictionnaire_donnees_complet.pdf")
+
+# ── Entity RAG (doctors + products) ──────────────────────────────────
+ENTITY_DOCTORS_CSV: str  = os.getenv("ENTITY_DOCTORS_CSV",  r"C:\python pi\doctors.csv")
+ENTITY_PRODUCTS_JSON: str = os.getenv("ENTITY_PRODUCTS_JSON", r"C:\python pi\prod_vital.json")

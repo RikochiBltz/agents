@@ -19,6 +19,7 @@ from openai import OpenAI
 
 import config
 from core.backend_client import BackendClient
+from core.entity_rag import EntityRAG
 from core.rag import TableRAG
 from core.tools import TOOLS, format_tool_result
 
@@ -72,9 +73,15 @@ class DataResult:
 
 
 class DataAgent:
-    def __init__(self, client: BackendClient, rag: TableRAG | None = None):
+    def __init__(
+        self,
+        client: BackendClient,
+        rag: TableRAG | None = None,
+        entity_rag: EntityRAG | None = None,
+    ):
         self.backend = client
         self.rag = rag
+        self.entity_rag = entity_rag
         self._llm = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY)
         self._schema: dict | None = None
         self._module_table_map: str = ""
@@ -143,8 +150,10 @@ class DataAgent:
         rag_results, rag_context = self._rag_context(question)
         yield f"__rag__:{len(rag_results)}:{','.join(r['table'] for r in rag_results)}"
 
+        entity_context = self._entity_context(question)
+
         messages: list[dict] = [
-            {"role": "system", "content": self._system_prompt(rag_context)},
+            {"role": "system", "content": self._system_prompt(rag_context, entity_context)},
             {"role": "user",   "content": question},
         ]
 
@@ -440,6 +449,16 @@ class DataAgent:
                     })
         return results
 
+    # ── Entity RAG ────────────────────────────────────────────────────
+
+    def _entity_context(self, question: str) -> str:
+        if not self.entity_rag:
+            return ""
+        try:
+            return self.entity_rag.search(question)
+        except Exception:
+            return ""
+
     # ── RAG ───────────────────────────────────────────────────────────
 
     def _rag_context(self, question: str) -> tuple[list[dict], str]:
@@ -480,7 +499,7 @@ class DataAgent:
                 )
         return "\n".join(lines)
 
-    def _system_prompt(self, rag_context: str = "") -> str:
+    def _system_prompt(self, rag_context: str = "", entity_context: str = "") -> str:
         table_context = rag_context if rag_context else (
             "## ALL MODULES AND TABLES\n" + self._module_table_map
         )
@@ -595,6 +614,7 @@ Use compare_periods when there is a dimension to group by.
 - `in` / `notIn` value must be a JSON array.
 - `between` value must be [start, end] array.
 
+{entity_context}
 {key_columns}
 
 {table_context}

@@ -21,6 +21,7 @@ from rich.text import Text
 
 import config
 from core.backend_client import BackendClient
+from core.entity_rag import EntityRAG
 from core.rag import TableRAG
 from agents.orchestrator import Orchestrator, RoutingDecision
 from agents.data_agent import DataAgent, DataResult
@@ -73,13 +74,28 @@ def startup_banner():
 
 def connect_backend() -> BackendClient:
     client = BackendClient()
-    if config.BACKEND_EMAIL and config.BACKEND_PASSWORD:
-        with console.status("[yellow]Logging in...[/yellow]"):
-            role = client.login(config.BACKEND_EMAIL, config.BACKEND_PASSWORD)
-        console.print(f"[green]Authenticated as {role}[/green]")
-    else:
-        console.print("[dim]Auth disabled — no token[/dim]")
-    return client
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        email    = Prompt.ask("[bold]Email[/bold]")
+        password = Prompt.ask("[bold]Password[/bold]", password=True)
+        try:
+            with console.status("[yellow]Authenticating...[/yellow]"):
+                role = client.login(email, password)
+            console.print(
+                f"[green]Logged in[/green] — [bold]{email}[/bold] [dim]({role})[/dim]"
+            )
+            return client
+        except Exception as e:
+            remaining = max_attempts - attempt
+            if remaining > 0:
+                console.print(
+                    f"[red]Login failed:[/red] {e}  "
+                    f"[dim]({remaining} attempt{'s' if remaining > 1 else ''} left)[/dim]"
+                )
+            else:
+                console.print(f"[red]Login failed:[/red] {e}")
+    console.print("[red]Too many failed attempts. Exiting.[/red]")
+    sys.exit(1)
 
 
 def setup_rag() -> TableRAG | None:
@@ -99,6 +115,25 @@ def setup_rag() -> TableRAG | None:
             console.print(f"[red]RAG build failed: {e}[/red]")
             return None
     return rag
+
+
+def _setup_entity_rag() -> EntityRAG | None:
+    doctors_path  = config.ENTITY_DOCTORS_CSV
+    products_path = config.ENTITY_PRODUCTS_JSON
+    if not Path(doctors_path).exists() and not Path(products_path).exists():
+        console.print("[dim]Entity RAG files not found — entity lookup disabled[/dim]")
+        return None
+    with console.status("[yellow]Loading entity index (doctors + products)...[/yellow]"):
+        try:
+            rag = EntityRAG(doctors_csv=doctors_path, products_json=products_path)
+            console.print(
+                f"[green]Entity index ready:[/green] "
+                f"{rag.doctor_count} doctors, {rag.product_count} products"
+            )
+            return rag
+        except Exception as e:
+            console.print(f"[red]Entity RAG load failed: {e}[/red]")
+            return None
 
 
 def load_schema(agent: DataAgent) -> None:
@@ -487,9 +522,10 @@ def main():
         sys.exit(1)
 
     rag = setup_rag()
+    entity_rag = _setup_entity_rag()
 
     orchestrator   = Orchestrator()
-    data_agent     = DataAgent(client, rag=rag)
+    data_agent     = DataAgent(client, rag=rag, entity_rag=entity_rag)
     analysis_agent = AnalysisAgent()
     report_agent   = ReportAgent()
 
