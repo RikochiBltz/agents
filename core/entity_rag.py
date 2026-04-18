@@ -5,6 +5,9 @@ Injected into the DataAgent system prompt so the LLM can resolve
 entity references (doctor names, specialties, cities, product names)
 without spending tool-call rounds on DB searches.
 
+When a doctor is matched, products relevant to their specialty are
+automatically included so the LLM can recommend them.
+
 No ML dependencies — uses token-overlap scoring.
 Doctors CSV  : ~31 000 rows  →  loaded once, queried in <5 ms
 Products JSON: ~113 entries  →  brute-force is fine
@@ -32,19 +35,127 @@ def _tokens(text: str) -> set[str]:
 
 def _partial_overlap(q_tokens: set[str], item_tokens: set[str]) -> int:
     """
-    Count tokens that are an exact match OR a prefix match (min 4 chars).
-    E.g. 'cardiologue' matches 'cardiologie' because both start with 'cardiol'.
+    Exact match (score +2) or 4-char prefix match (score +1).
+    E.g. 'cardiologue' matches 'cardiologie' via shared prefix 'card'.
     """
     score = 0
     for qt in q_tokens:
         for it in item_tokens:
             if qt == it:
-                score += 2          # exact match worth more
+                score += 2
                 break
             elif len(qt) >= 4 and (qt.startswith(it[:4]) or it.startswith(qt[:4])):
                 score += 1
                 break
     return score
+
+
+# ── specialty → product keyword expansions ────────────────────────────
+# Maps a specialty prefix (lowercase) to French keywords that appear in
+# product indications. Used to find relevant products for a given doctor.
+
+_SPECIALTY_EXPANSIONS: dict[str, list[str]] = {
+    # Cardiology → cholesterol / cardiovascular products
+    "cardio": [
+        "cholesterol", "cholestérol", "cardiovasculaire", "circulation",
+        "coenzyme", "antioxydant", "graisse",
+    ],
+    # Pediatrics → full PEDIAKIDS range
+    "pédiatr": [
+        "enfant", "bébé", "nourrisson", "croissance", "pediakids",
+        "toux", "gorge", "respiratoires", "sommeil", "digestion", "gaz",
+        "vitamines", "calcium",
+    ],
+    # Dermatology → skin / hair / nail products
+    "dermatol": [
+        "peau", "ongles", "cheveux", "acné", "taches", "épiderme",
+        "éclaircissant", "hydratation", "sébum", "pellicules",
+    ],
+    # Gynecology / Obstetrics / Maternity
+    "gynécol": [
+        "grossesse", "ménopause", "allaitement", "hormonal", "féminin",
+        "ovulation", "menstruel", "dysménorrhée", "préconception", "fertilité",
+    ],
+    "obstétr": ["grossesse", "allaitement", "enceinte", "fer"],
+    "maternit": ["grossesse", "allaitement", "enceinte", "fer"],
+    # Pulmonology / ENT / Respiratory
+    "pneumol": [
+        "respiratoires", "toux", "bronchite", "expectorant", "gorge",
+        "encombremen", "poumons",
+    ],
+    "orl": [
+        "gorge", "nasal", "rhinite", "toux", "respiratoires", "antiseptique",
+    ],
+    # Neurology / Psychiatry / Psychology
+    "neurolog": [
+        "mémoire", "concentration", "cérébral", "cerébral", "omega",
+        "sommeil", "stress",
+    ],
+    "psychiatr": [
+        "stress", "anxiété", "humeur", "sommeil", "fatigue", "adaptogène",
+        "millepertuis", "ashwagandha",
+    ],
+    "psycholog": ["stress", "anxiété", "humeur", "sommeil", "millepertuis"],
+    # Rheumatology / Sports medicine
+    "rhumato": [
+        "articulaire", "musculaire", "douleurs", "inflammatoire",
+        "traumatismes", "contusions", "arnica",
+    ],
+    "sport": ["musculaire", "articulaire", "préparation", "relaxant", "sportifs"],
+    # Gastroenterology / Hepatology
+    "gastro": [
+        "digestif", "transit", "ballonnement", "digestion", "flatulences",
+        "cholestérol", "intestin", "colon", "foie",
+    ],
+    # Endocrinology / Metabolism / Obesity
+    "endocrin": [
+        "cholestérol", "glycémie", "obésité", "poids", "graisse",
+        "minceur", "appétit",
+    ],
+    "diabétol": ["glycémie", "diabétiques", "cholestérol"],
+    "obésit": ["poids", "minceur", "coupe-faim", "graisse"],
+    # Stomatology / Dentistry
+    "stomato": ["gencives", "buccale", "dentaire", "haleine", "antiseptique"],
+    "dentist": ["gencives", "buccale", "dentaire", "haleine"],
+    # Trichology / Dermatology (hair)
+    "tricholog": ["cheveux", "ongles", "pellicules", "repousse", "chute"],
+    "capillair": ["cheveux", "pellicules", "repousse", "brillance"],
+    # Oncology / Palliative
+    "oncolog": [
+        "immunostimulant", "fortifiant", "antioxydant", "vieillissement",
+        "cellulaire", "spiruline", "convalescence",
+    ],
+    # Allergology / Immunology
+    "allergol": ["allergènes", "immunitaire", "rhinite", "anticorps"],
+    "immunolog": ["immunostimulant", "immunité", "anticorps", "défenses"],
+    # Sexology / Andrology / Fertility
+    "sexolog": ["sexuelles", "libido", "fertilité", "sperme", "performances"],
+    "androlog": ["fertilité", "sperme", "performances", "libido"],
+    # Ophthalmology
+    "ophtalmol": ["yeux", "vision", "omega"],
+    # Urology / Nephrology
+    "urolog": ["prostate", "urinaire", "drainage"],
+    "néphrol": ["drainage", "draineur", "urinaire"],
+    # General medicine / Family medicine / Internal medicine
+    "générale": [
+        "fortifiant", "immunité", "fatigue", "vitalité", "tonus",
+        "vitamines", "surmenage",
+    ],
+    "famille": [
+        "fortifiant", "immunité", "fatigue", "vitalité", "tonus",
+        "vitamines", "surmenage",
+    ],
+    "interne": [
+        "fortifiant", "immunité", "fatigue", "vitalité", "convalescence",
+    ],
+    # Senior / Geriatrics
+    "gériatr": [
+        "sénior", "mémoire", "asthénie", "antioxydant", "vieillissement",
+        "défenses",
+    ],
+    # Pediatric nutrition / diet
+    "nutriti": ["poids", "appétit", "croissance", "vitamines", "nutritifs"],
+}
 
 
 # ── main class ────────────────────────────────────────────────────────
@@ -71,12 +182,12 @@ class EntityRAG:
             return
         with open(p, encoding="utf-8-sig") as f:
             for row in csv.DictReader(f):
-                nom       = row.get("Nom", "").strip()
-                prenom    = row.get("Prenom", "").strip()
-                specialite= row.get("Specialite", "").strip()
-                ville     = row.get("VilleAdresseCourrier", "").strip()
-                crom      = row.get("CROM", "").strip()
-                ordre     = row.get("NumeroOrdre", "").strip()
+                nom        = row.get("Nom", "").strip()
+                prenom     = row.get("Prenom", "").strip()
+                specialite = row.get("Specialite", "").strip()
+                ville      = row.get("VilleAdresseCourrier", "").strip()
+                crom       = row.get("CROM", "").strip()
+                ordre      = row.get("NumeroOrdre", "").strip()
                 self._doctors.append({
                     "nom":        nom,
                     "prenom":     prenom,
@@ -114,8 +225,11 @@ class EntityRAG:
 
     def search(self, query: str, doctor_top_k: int = 5, product_top_k: int = 5) -> str:
         """
-        Returns a formatted Markdown block with matching doctors and products.
-        Empty string if nothing is relevant enough to be worth injecting.
+        Returns a formatted Markdown block with:
+          - Matched doctors
+          - Products relevant to those doctors' specialties
+          - Products directly matched by the query (if any)
+        Returns empty string if nothing relevant is found.
         """
         q_tokens = _tokens(query)
         if not q_tokens:
@@ -124,11 +238,35 @@ class EntityRAG:
         doctor_hits  = self._rank(self._doctors,  q_tokens, min_score=2, top_k=doctor_top_k)
         product_hits = self._rank(self._products, q_tokens, min_score=1, top_k=product_top_k)
 
+        # Collect specialty-based product recommendations from matched doctors
+        specialty_products: dict[str, list[dict]] = {}  # specialty → product list
+        seen_product_keys: set[str] = set()
+
+        if doctor_hits:
+            # Track which products were directly query-matched to avoid duplicates
+            for _, p in product_hits:
+                seen_product_keys.add(f"{p['nom']}|{p['forme']}")
+
+            # For each unique specialty among matched doctors, find relevant products
+            seen_specialties: set[str] = set()
+            for _, d in doctor_hits:
+                spec = d["specialite"]
+                if not spec or spec in seen_specialties:
+                    continue
+                seen_specialties.add(spec)
+
+                rec = self._products_for_specialty(spec, top_k=5, exclude=seen_product_keys)
+                if rec:
+                    specialty_products[spec] = rec
+                    for p in rec:
+                        seen_product_keys.add(f"{p['nom']}|{p['forme']}")
+
         if not doctor_hits and not product_hits:
             return ""
 
         lines = ["## KNOWN ENTITIES (resolved locally — use these to build precise filters)\n"]
 
+        # ── Doctors ──────────────────────────────────────────────────
         if doctor_hits:
             lines.append("### Doctors")
             for _, d in doctor_hits:
@@ -145,8 +283,25 @@ class EntityRAG:
                 lines.append("- " + " | ".join(parts))
             lines.append("")
 
+        # ── Specialty product recommendations ─────────────────────────
+        if specialty_products:
+            lines.append("### Recommended products by specialty")
+            for specialty, prods in specialty_products.items():
+                lines.append(f"\n**{specialty}**")
+                for p in prods:
+                    parts = [f"- **{p['nom']}**"]
+                    if p["forme"]:
+                        parts[0] += f" ({p['forme']})"
+                    if p["categorie"]:
+                        parts.append(f"Catégorie: {p['categorie']}")
+                    if p["indications"]:
+                        parts.append(f"Indications: {p['indications']}")
+                    lines.append("  " + " | ".join(parts))
+            lines.append("")
+
+        # ── Directly matched products (by query, not specialty) ───────
         if product_hits:
-            lines.append("### Products")
+            lines.append("### Products matching query")
             for _, p in product_hits:
                 parts = [f"**{p['nom']}**"]
                 if p["forme"]:
@@ -169,6 +324,53 @@ class EntityRAG:
         return len(self._products)
 
     # ── internal ──────────────────────────────────────────────────────
+
+    def _products_for_specialty(
+        self,
+        specialty: str,
+        top_k: int = 5,
+        exclude: set[str] | None = None,
+    ) -> list[dict]:
+        """
+        Find products relevant to a medical specialty.
+        Uses keyword expansion to bridge medical jargon and product indications.
+        """
+        spec_lower = specialty.lower()
+
+        # Build expanded token set from expansion map
+        extra_keywords: list[str] = []
+        for prefix, keywords in _SPECIALTY_EXPANSIONS.items():
+            if spec_lower.startswith(prefix) or prefix in spec_lower:
+                extra_keywords.extend(keywords)
+
+        # Combine specialty tokens with expanded keywords
+        spec_tokens = _tokens(specialty) | _tokens(" ".join(extra_keywords))
+
+        if not spec_tokens:
+            return []
+
+        exclude = exclude or set()
+        candidates: list[tuple[int, dict]] = []
+        for p in self._products:
+            key = f"{p['nom']}|{p['forme']}"
+            if key in exclude:
+                continue
+            score = _partial_overlap(spec_tokens, p["_tokens"])
+            if score >= 1:
+                candidates.append((score, p))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # Deduplicate by product name (keep highest-scored form)
+        seen_names: set[str] = set()
+        result: list[dict] = []
+        for _, p in candidates:
+            if p["nom"] not in seen_names:
+                seen_names.add(p["nom"])
+                result.append(p)
+            if len(result) >= top_k:
+                break
+        return result
 
     @staticmethod
     def _rank(
