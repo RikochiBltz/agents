@@ -513,6 +513,9 @@ class DataAgent:
    - If correct → respond with exactly: VERIFIED
    - If wrong (0 rows, error, wrong columns) → call a different tool and retry.
 4. For tables NOT listed in KEY TABLE COLUMNS, call get_table_columns first.
+5. If KNOWN ENTITIES section is present: use the exact **Nom** and **Prénom** from that
+   section for any name-based DB filters — it is the canonical spelling, not the user's
+   possibly misspelled version.
 
 ## TOOL SELECTION
 | Situation | Tool |

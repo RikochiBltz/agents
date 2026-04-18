@@ -223,11 +223,37 @@ class EntityRAG:
 
     # ── public interface ──────────────────────────────────────────────
 
+    @staticmethod
+    def _is_person_lookup(query: str) -> bool:
+        """
+        Returns True when the query is directly about finding/showing a person
+        (not about analysing their sales, visits, or products).
+        In that case specialty product recommendations are skipped — they add
+        noise without value for a simple person-lookup.
+        """
+        q = query.lower()
+        lookup_signals = [
+            "qui est", "who is", "cherche", "find", "search",
+            "info sur", "information sur", "fiche", "coordonnées",
+            "numéro", "téléphone", "email", "adresse",
+            "existe", "existe-t-il", "trouve",
+        ]
+        analysis_signals = [
+            "vente", "ca ", "chiffre", "visite", "commande", "solde",
+            "produit", "analyse", "comparaison", "performance",
+        ]
+        has_lookup   = any(s in q for s in lookup_signals)
+        has_analysis = any(s in q for s in analysis_signals)
+        # If explicit analysis signals → not a pure lookup
+        if has_analysis:
+            return False
+        return has_lookup
+
     def search(self, query: str, doctor_top_k: int = 5, product_top_k: int = 5) -> str:
         """
         Returns a formatted Markdown block with:
           - Matched doctors
-          - Products relevant to those doctors' specialties
+          - Products relevant to those doctors' specialties (skipped for person-lookups)
           - Products directly matched by the query (if any)
         Returns empty string if nothing relevant is found.
         """
@@ -238,11 +264,14 @@ class EntityRAG:
         doctor_hits  = self._rank(self._doctors,  q_tokens, min_score=2, top_k=doctor_top_k)
         product_hits = self._rank(self._products, q_tokens, min_score=1, top_k=product_top_k)
 
+        # Specialty products are only useful for visit/sales/analysis queries
+        person_lookup = self._is_person_lookup(query)
+
         # Collect specialty-based product recommendations from matched doctors
         specialty_products: dict[str, list[dict]] = {}  # specialty → product list
         seen_product_keys: set[str] = set()
 
-        if doctor_hits:
+        if doctor_hits and not person_lookup:
             # Track which products were directly query-matched to avoid duplicates
             for _, p in product_hits:
                 seen_product_keys.add(f"{p['nom']}|{p['forme']}")
@@ -264,7 +293,13 @@ class EntityRAG:
         if not doctor_hits and not product_hits:
             return ""
 
-        lines = ["## KNOWN ENTITIES (resolved locally — use these to build precise filters)\n"]
+        lines = [
+            "## KNOWN ENTITIES (resolved from national registry)\n",
+            "> These records come from an external registry, NOT from the CRM database.",
+            "> When the user mentions a doctor by name, use the **exact Nom/Prénom** listed",
+            "> here for any DB name filters — it is the canonical spelling.",
+            "> The CRM data (sales, visits, balances) is still in the database and must be queried.\n",
+        ]
 
         # ── Doctors ──────────────────────────────────────────────────
         if doctor_hits:
