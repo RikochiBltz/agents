@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediNote AI — Workflow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #F7F5F2;
+      --card:        #FFFFFF;
+      --border:      rgba(0,0,0,0.07);
+      --border-mid:  rgba(0,0,0,0.12);
+      --text:        #1C1C1C;
+      --muted:       #787878;
+      --faint:       #ADADAD;
+
+      --orch-a:  #8165C8;  --orch-b:  #EDE8FB;  --orch-t:  #3D2A80;
+      --data-a:  #C4733D;  --data-b:  #FEF0E6;  --data-t:  #7A3510;
+      --kpi-a:   #3D9470;  --kpi-b:   #E5F5EC;  --kpi-t:   #145234;
+      --anal-a:  #3B6EC4;  --anal-b:  #E6EFFC;  --anal-t:  #112D70;
+      --rep-a:   #C4417A;  --rep-b:   #FEEAF3;  --rep-t:   #701040;
+      --doc-a:   #5EA83C;  --doc-b:   #EDFAE5;  --doc-t:   #2A5C18;
+    }
+
+    html, body { height: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* Subtle dot grid */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: radial-gradient(rgba(0,0,0,0.055) 1px, transparent 1px);
+      background-size: 26px 26px;
+      pointer-events: none; z-index: 0;
+    }
+    #root { position: relative; z-index: 1; }
+
+    /* ── Page shell ─────────────────────────────────── */
+    .page {
+      max-width: 1100px; margin: 0 auto;
+      padding: 52px 24px 72px;
+      display: flex; flex-direction: column; gap: 38px;
+    }
+
+    /* ── Header ─────────────────────────────────────── */
+    .header { text-align: center; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--faint); margin-bottom: 14px;
+    }
+    .eyebrow-pip {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--orch-a);
+    }
+    .header h1 {
+      font-family: 'DM Serif Display', serif; font-size: 46px; font-weight: 400;
+      letter-spacing: -0.025em; line-height: 1.08; color: var(--text);
+    }
+    .header h1 em { font-style: italic; color: var(--orch-a); }
+    .header-sub {
+      margin-top: 11px; font-size: 15px; color: var(--muted);
+      font-weight: 300; letter-spacing: 0.01em;
+    }
+
+    /* ── Scenario picker ─────────────────────────────── */
+    .picker { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .pill {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 20px; border-radius: 100px;
+      border: 1.5px solid var(--border); background: var(--card);
+      cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted);
+      transition: all 0.22s ease; user-select: none;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .pill:hover { border-color: var(--border-mid); color: var(--text); transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,0.07); }
+    .pill.on {
+      background: var(--_c); border-color: var(--_c); color: #fff;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18); transform: translateY(-1px);
+    }
+    .pill-no {
+      font-size: 10.5px; font-weight: 700; padding: 2px 8px;
+      border-radius: 100px; background: rgba(255,255,255,0.22); letter-spacing: 0.04em;
+    }
+    .pill:not(.on) .pill-no { background: rgba(0,0,0,0.06); color: var(--muted); }
+
+    /* ── Canvas ──────────────────────────────────────── */
+    .canvas {
+      background: var(--card); border-radius: 22px;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 48px rgba(0,0,0,0.055);
+      padding: 42px 40px; display: flex; flex-direction: column; gap: 34px;
+      position: relative; overflow: hidden; min-height: 400px;
+    }
+    /* Corner glow */
+    .canvas::after {
+      content: ''; position: absolute; top: -120px; right: -120px;
+      width: 360px; height: 360px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(129,101,200,0.07) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    /* ── Question ────────────────────────────────────── */
+    .q-label {
+      font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--faint); margin-bottom: 7px;
+    }
+    .q-text {
+      font-family: 'DM Serif Display', serif; font-size: 21px;
+      color: var(--text); line-height: 1.42;
+    }
+
+    /* ── Pipeline row ────────────────────────────────── */
+    .pipeline { display: flex; align-items: center; overflow-x: auto; padding-bottom: 4px; }
+
+    /* ── Node ────────────────────────────────────────── */
+    .node { display: flex; flex-direction: column; align-items: center; gap: 0; flex-shrink: 0; }
+    .node-card {
+      width: 126px; padding: 16px 10px 14px;
+      border-radius: 16px; border: 1.5px solid var(--border);
+      background: var(--card); display: flex; flex-direction: column;
+      align-items: center; gap: 7px; text-align: center;
+      transition: all 0.38s cubic-bezier(0.34, 1.4, 0.64, 1);
+      position: relative; overflow: hidden;
+    }
+    .node-card.idle  { opacity: 0.38; transform: scale(0.96); }
+    .node-card.live  {
+      border-color: var(--_a); background: var(--_b);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--_a) 13%, transparent),
+                  0 10px 28px rgba(0,0,0,0.09);
+      opacity: 1; transform: scale(1.01);
+    }
+    .node-card.done  {
+      border-color: color-mix(in srgb, var(--_a) 38%, var(--border));
+      background: color-mix(in srgb, var(--_b) 60%, #fff);
+      opacity: 0.8; transform: scale(1);
+    }
+
+    /* Pulse ring when live */
+    .node-card.live::before {
+      content: ''; position: absolute; inset: -2px;
+      border-radius: 17px; border: 2px solid var(--_a);
+      animation: ringpulse 1.8s ease-out infinite; opacity: 0;
+    }
+    @keyframes ringpulse { 0% { transform: scale(1); opacity: 0.55; } 100% { transform: scale(1.07); opacity: 0; } }
+
+    .node-ico {
+      width: 38px; height: 38px; border-radius: 11px;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+      transition: all 0.35s ease;
+      background: var(--bg);
+    }
+    .node-card.live .node-ico  { background: var(--_a); }
+    .node-card.idle .node-ico  { background: #EBEBEB; }
+    .node-card.done .node-ico  { background: color-mix(in srgb, var(--_a) 18%, #fff); }
+
+    .node-name {
+      font-size: 11.5px; font-weight: 600; color: var(--text); transition: color 0.3s;
+      line-height: 1.25;
+    }
+    .node-card.idle .node-name { color: var(--faint); }
+    .node-card.live .node-name { color: var(--_t); }
+
+    .node-mdl {
+      font-size: 9.5px; color: var(--faint); font-weight: 400; transition: color 0.3s;
+    }
+    .node-card.live .node-mdl { color: var(--_a); }
+
+    /* Status indicator */
+    .node-status { display: flex; align-items: center; gap: 4px; }
+    .sdot { width: 6px; height: 6px; border-radius: 50%; background: #D4D4D4; transition: background 0.3s; }
+    .node-card.live .sdot  { background: var(--_a); animation: sdotblink 1s ease-in-out infinite; }
+    .node-card.done .sdot  { background: #5CB85C; }
+    @keyframes sdotblink { 0%,100% { opacity:1; } 50% { opacity: 0.2; } }
+    .stext { font-size: 10px; color: var(--faint); font-weight: 500; transition: color 0.3s; }
+    .node-card.live .stext { color: var(--_a); }
+    .node-card.done .stext { color: #5CB85C; }
+
+    /* ── Connector ───────────────────────────────────── */
+    .conn { flex: 1; min-width: 24px; height: 2px; position: relative; overflow: visible; }
+    .conn-track { height: 100%; background: var(--border); transition: background 0.4s ease; }
+    .conn.on   .conn-track { background: color-mix(in srgb, var(--_cc) 45%, transparent); }
+    .conn.past .conn-track { background: color-mix(in srgb, var(--_cc) 25%, transparent); }
+
+    /* Arrow tip */
+    .conn::after {
+      content: ''; position: absolute; right: -1px; top: 50%; transform: translateY(-50%);
+      width: 0; height: 0;
+      border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+      border-left: 7px solid var(--border); transition: border-left-color 0.4s;
+    }
+    .conn.on::after,
+    .conn.past::after { border-left-color: color-mix(in srgb, var(--_cc) 40%, transparent); }
+
+    /* Particles */
+    .pt { position: absolute; top: 50%; transform: translateY(-50%); width: 7px; height: 7px; border-radius: 50%; background: var(--_cc); opacity: 0; }
+    .conn.on .pt:nth-child(2) { animation: ptflow 1.5s ease-in-out infinite 0s; }
+    .conn.on .pt:nth-child(3) { animation: ptflow 1.5s ease-in-out infinite 0.5s; }
+    .conn.on .pt:nth-child(4) { animation: ptflow 1.5s ease-in-out infinite 1s; }
+    @keyframes ptflow {
+      0%   { left: -5px;            opacity: 0; }
+      8%   { opacity: 1; }
+      92%  { opacity: 1; }
+      100% { left: calc(100% + 5px); opacity: 0; }
+    }
+
+    /* "Direct" badge for P4 */
+    .conn-label {
+      position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+      font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--anal-a); background: color-mix(in srgb, var(--anal-b) 80%, #fff);
+      border: 1px solid color-mix(in srgb, var(--anal-a) 25%, transparent);
+      padding: 2px 8px; border-radius: 100px; white-space: nowrap;
+      opacity: 0; transition: opacity 0.4s ease;
+    }
+    .conn.on .conn-label, .conn.past .conn-label { opacity: 1; }
+
+    /* ── Narrative ───────────────────────────────────── */
+    .narr {
+      background: var(--bg); border-radius: 14px; padding: 22px 22px;
+      border: 1px solid var(--border); display: flex; flex-direction: column; gap: 14px;
+    }
+    .narr-row {
+      display: flex; align-items: flex-start; gap: 14px;
+      transition: opacity 0.3s ease;
+    }
+    .narr-ico {
+      width: 34px; height: 34px; border-radius: 9px; background: var(--card);
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
+      border: 1px solid var(--border); flex-shrink: 0; transition: border-color 0.3s;
+    }
+    .narr-body { flex: 1; }
+    .narr-title { font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+    .narr-detail {
+      font-size: 12px; color: var(--muted); line-height: 1.5;
+      font-family: 'SF Mono', 'Consolas', 'Courier New', monospace;
+    }
+    .narr-sub { font-size: 11px; color: var(--faint); margin-top: 3px; }
+
+    /* ── Response ────────────────────────────────────── */
+    .resp {
+      background: var(--card); border-radius: 16px; padding: 28px 28px 24px;
+      border: 1px solid var(--border); box-shadow: 0 6px 30px rgba(0,0,0,0.07);
+      animation: risenow 0.55s cubic-bezier(0.34, 1.4, 0.64, 1) forwards;
+    }
+    @keyframes risenow { from { opacity: 0; transform: translateY(18px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .resp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+    .resp-badge {
+      display: flex; align-items: center; gap: 6px; padding: 4px 12px;
+      background: #ECFBEC; border: 1px solid #96D996; border-radius: 100px;
+      font-size: 11px; font-weight: 600; color: #2B7A2B;
+    }
+    .rbdot { width: 6px; height: 6px; border-radius: 50%; background: #2B7A2B; }
+    .resp-title { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+    .resp-body {
+      font-size: 14.5px; color: var(--text); line-height: 1.68;
+      border-left: 3px solid var(--border); padding-left: 16px; margin-bottom: 18px;
+    }
+    .resp-tags { display: flex; gap: 7px; flex-wrap: wrap; }
+    .resp-tag {
+      font-size: 11px; font-weight: 500; padding: 4px 11px;
+      border-radius: 100px; background: var(--bg); color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Controls ────────────────────────────────────── */
+    .ctrl { display: flex; align-items: center; justify-content: center; gap: 10px; }
+    .cbtn {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 1.5px solid var(--border); background: var(--card);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 16px; transition: all 0.18s ease;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .cbtn:hover:not(:disabled) { border-color: var(--border-mid); color: var(--text); transform: scale(1.1); box-shadow: 0 3px 10px rgba(0,0,0,0.09); }
+    .cbtn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .cbtn.main {
+      width: 50px; height: 50px; background: var(--text); border-color: var(--text);
+      color: #fff; font-size: 18px; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .cbtn.main:hover:not(:disabled) { opacity: 0.82; transform: scale(1.08); }
+    .ctrl-div { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
+    .pdots { display: flex; gap: 5px; align-items: center; }
+    .pdot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--border);
+      transition: all 0.28s ease;
+    }
+    .pdot.past { background: var(--faint); }
+    .pdot.now  { background: var(--text); width: 18px; border-radius: 3px; }
+
+    /* ── Animations ──────────────────────────────────── */
+    @keyframes fadein { from { opacity:0; transform: translateY(7px); } to { opacity:1; transform:translateY(0); } }
+    .fadein { animation: fadein 0.5s ease both; }
+
+    /* ── Timing bar ──────────────────────────────────── */
+    .tbar-wrap {
+      height: 3px; background: var(--border); border-radius: 100px; overflow: hidden;
+    }
+    .tbar-fill {
+      height: 100%; background: var(--_c, var(--orch-a));
+      border-radius: 100px; transition: width 0.3s linear;
+    }
+
+    @media (max-width: 720px) {
+      .page { padding: 32px 16px 56px; gap: 28px; }
+      .canvas { padding: 28px 22px; }
+      .header h1 { font-size: 34px; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ───────────────────────────── DATA ────────────────────────────── */
+
+const AGENTS = {
+  orch:  { name: "Orchestrator",   mdl: "gpt-oss · 20b",     ico: "⟡",  a: "var(--orch-a)", b: "var(--orch-b)", t: "var(--orch-t)" },
+  data:  { name: "Data Agent",     mdl: "deepseek · 671b",   ico: "◈",  a: "var(--data-a)", b: "var(--data-b)", t: "var(--data-t)" },
+  kpi:   { name: "KPI Agent",      mdl: "gpt-oss · 20b",     ico: "◎",  a: "var(--kpi-a)",  b: "var(--kpi-b)",  t: "var(--kpi-t)"  },
+  anal:  { name: "Analysis Agent", mdl: "gpt-oss · 20b",     ico: "◐",  a: "var(--anal-a)", b: "var(--anal-b)", t: "var(--anal-t)" },
+  rep:   { name: "Report Agent",   mdl: "gpt-oss · 20b",     ico: "◫",  a: "var(--rep-a)",  b: "var(--rep-b)",  t: "var(--rep-t)"  },
+  doc:   { name: "Doctor Agent",   mdl: "llama3.1 · 8b",     ico: "◉",  a: "var(--doc-a)",  b: "var(--doc-b)",  t: "var(--doc-t)"  },
+};
+
+const SCENARIOS = [
+  /* ── P1 ── */
+  {
+    id: 0, tag: "P1", label: "Sales Analytics", color: "var(--orch-a)",
+    question: "Quels sont les 5 meilleurs délégués par CA en 2024 ?",
+    agents: ["orch","data","kpi","anal"],
+    steps: [
+      { id:"orch", title:"Routing Decision",       code:"pipeline=1 · data_query clarified",             sub:"analysis_spec: rank delegates, flag growth/decline" },
+      { id:"data", title:"Database Query",          code:"aggregate_table(ca_tot_vente, groupBy=[dlg], TOP 5)", sub:"5 rows returned · VERIFIED in 1 round · 2.1 s"       },
+      { id:"kpi",  title:"KPI Computation",         code:"growth_pct · rank · vs_avg_pct  ×5 delegates", sub:"+18.3%  +12.1%  +2.1%  −4.2%  −8.7%"                },
+      { id:"anal", title:"Narrative Generation",    code:"Direct answer + trend + 2 underperformers flagged", sub:"Response in French · 4 bullet points"              },
+    ],
+    resp: {
+      title: "Top 5 Delegates — CA 2024",
+      body:  "Ahmed Ben Salah leads at 1.24M DT (+18.3% vs 2023), followed by Sara Amara at 1.18M (+12.1%). Three delegates show positive momentum. ⚠ Delegates #4 and #5 declined −4.2% and −8.7% — priority review recommended for Q1 2025.",
+      tags:  ["5 rows fetched","Growth rates computed","2 alerts raised","1 LLM round"],
+    },
+  },
+  /* ── P2 ── */
+  {
+    id: 1, tag: "P2", label: "Visit Report", color: "var(--rep-a)",
+    question: "Reformule mes notes : visite Dr. Slim, pneumologue, Plantyl présenté, très intéressé commande",
+    agents: ["orch","rep"],
+    steps: [
+      { id:"orch", title:"Routing Decision",   code:"pipeline=2 · intent: reformulate",             sub:"Raw notes detected · field visit context confirmed"         },
+      { id:"rep",  title:"Report Generation",  code:"FAISS RAG → Plantyl product sheet retrieved",  sub:"Structure applied · professional tone · scientific data injected" },
+    ],
+    resp: {
+      title: "Compte Rendu de Visite — Dr. Slim",
+      body:  "Médecin : Dr. Slim, Pneumologue. Objet : Présentation de Plantyl (sirop & gélules). Réaction : Très favorable, commande probable sous 5 jours. Points discutés : efficacité sur toux grasse, effet expectorant, tolérance patient. Prochaine étape : relance J+5.",
+      tags:  ["Intent: reformulate","RAG: Plantyl retrieved","Structure applied"],
+    },
+  },
+  /* ── P3 ── */
+  {
+    id: 2, tag: "P3", label: "Doctor Profile", color: "var(--doc-a)",
+    question: "Give me information about doctor Syrine Azza Mannoubi",
+    agents: ["orch","doc"],
+    steps: [
+      { id:"orch", title:"Routing Decision",  code:"pipeline=3 · doctor profile lookup",            sub:"No DB query needed · entity registry only"                  },
+      { id:"doc",  title:"Registry Search",   code:"Entity index: 31,169 doctors · match in < 5ms", sub:"MANOUBI Syrine Azza · Médecine légale · CROM Tunis · N°27916" },
+    ],
+    resp: {
+      title: "Doctor Profile — National Registry",
+      body:  "Dr. Syrine Azza Mannoubi — Specialty: Médecine légale (Forensic Medicine). CROM Tunis, Order No. 27916. Suggested products: Coenzyme Q10, VITONIC Booster, Spiruline (antioxidant & general fortifying, appropriate for the specialty profile).",
+      tags:  ["Source: national registry","0 DB queries","Specialty products mapped","< 2 s total"],
+    },
+  },
+  /* ── P4 ── */
+  {
+    id: 3, tag: "P4", label: "Direct Analysis", color: "var(--anal-a)",
+    question: "Zone Nord 1.2M · Sud 0.8M · Est 1.5M · Ouest 0.9M — zone performance breakdown?",
+    agents: ["orch","anal"],
+    directConn: true,
+    steps: [
+      { id:"orch", title:"Routing Decision",      code:"pipeline=4 · data provided inline",        sub:"No DB fetch required · direct route to Analysis Agent"      },
+      { id:"anal", title:"Inline Data Analysis",  code:"Mean: 1.1M · Est +36% · Sud −27%",         sub:"2 zones above average · 2 below · recommendations formed"  },
+    ],
+    resp: {
+      title: "Zone Performance Breakdown",
+      body:  "Zone Est leads at 1.5M (36% above group average). Zone Nord is slightly above at 1.2M. Zone Ouest (0.9M) sits 18% below average. Zone Sud requires priority review at 0.8M — a 27% gap from the group mean that warrants immediate follow-up.",
+      tags:  ["Inline data","No DB query","Mean: 1.1M","2 zones flagged"],
+    },
+  },
+];
+
+const STEP_MS = 1850;
+
+/* ───────────────────────────── COMPONENTS ─────────────────────── */
+
+function Node({ id, state }) {
+  const ag = AGENTS[id];
+  const vars = { "--_a": ag.a, "--_b": ag.b, "--_t": ag.t };
+  const label = state === "idle" ? "idle" : state === "live" ? "running…" : "done";
+  return (
+    <div className="node">
+      <div className={`node-card ${state}`} style={vars}>
+        <div className="node-ico">
+          <span style={{ color: state==="live" ? "#fff" : state==="idle" ? "#C0C0C0" : ag.a, fontSize:20 }}>
+            {ag.ico}
+          </span>
+        </div>
+        <div className="node-name">{ag.name}</div>
+        <div className="node-mdl">{ag.mdl}</div>
+        <div className="node-status">
+          <div className="sdot" />
+          <span className="stext">{label}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Conn({ fromIdx, toIdx, agents, step, directConn }) {
+  // fromIdx connector: between agents[fromIdx] and agents[fromIdx+1]
+  const isOn   = step === fromIdx + 1;
+  const isPast = step > fromIdx + 1;
+  const nextAg = AGENTS[agents[fromIdx + 1]];
+  const vars = { "--_cc": nextAg.a };
+  const cls = `conn ${isOn ? "on" : ""} ${isPast ? "past" : ""}`;
+  return (
+    <div className={cls} style={vars}>
+      <div className="conn-track" />
+      <div className="pt" /><div className="pt" /><div className="pt" />
+      {directConn && (isOn || isPast) && (
+        <div className="conn-label">Direct path</div>
+      )}
+    </div>
+  );
+}
+
+function Pipeline({ scenario, step }) {
+  const ags = scenario.agents;
+  const activeIdx = step >= 0 ? Math.min(step, ags.length - 1) : -1;
+  return (
+    <div className="pipeline">
+      {ags.map((id, i) => {
+        const state = activeIdx === i ? "live" : activeIdx > i ? "done" : "idle";
+        return (
+          <React.Fragment key={id}>
+            <Node id={id} state={state} />
+            {i < ags.length - 1 && (
+              <Conn
+                fromIdx={i}
+                toIdx={i+1}
+                agents={ags}
+                step={step}
+                directConn={scenario.directConn && i === 0}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+function Narr({ scenario, step }) {
+  if (step < 0) return null;
+  const visible = scenario.steps.slice(0, step + 1);
+  return (
+    <div className="narr fadein">
+      {visible.map((s, i) => {
+        const ag = AGENTS[s.id];
+        const isLast = i === visible.length - 1;
+        return (
+          <div
+            key={i}
+            className="narr-row"
+            style={{
+              opacity: isLast ? 1 : 0.5,
+              animation: isLast ? "fadein 0.42s ease both" : "none",
+            }}
+          >
+            <div className="narr-ico" style={{ borderColor: isLast ? ag.a : "var(--border)" }}>
+              <span style={{ color: ag.a, fontSize: 15 }}>{ag.ico}</span>
+            </div>
+            <div className="narr-body">
+              <div className="narr-title" style={{ color: isLast ? ag.t : "var(--muted)" }}>
+                {s.title}
+              </div>
+              <div className="narr-detail">{s.code}</div>
+              <div className="narr-sub">{s.sub}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Resp({ resp, color }) {
+  return (
+    <div className="resp" style={{ "--_c": color }}>
+      <div className="resp-head">
+        <div className="resp-badge"><div className="rbdot" />Response ready</div>
+        <div className="resp-title">{resp.title}</div>
+      </div>
+      <div className="resp-body" style={{ borderLeftColor: color }}>{resp.body}</div>
+      <div className="resp-tags">{resp.tags.map((t,i) => <span key={i} className="resp-tag">{t}</span>)}</div>
+    </div>
+  );
+}
+
+function TimingBar({ step, total, color, playing }) {
+  const pct = total === 0 ? 0 : Math.min(100, (step / total) * 100);
+  return (
+    <div className="tbar-wrap">
+      <div className="tbar-fill" style={{ width: `${pct}%`, "--_c": color }} />
+    </div>
+  );
+}
+
+/* ───────────────────────────── APP ─────────────────────────────── */
+
+function App() {
+  const [si, setSi]       = useState(0);          // scenario index
+  const [step, setStep]   = useState(-1);          // -1 = idle, 0..N-1 = agents, N = response
+  const [playing, setPlaying] = useState(false);
+  const sc = SCENARIOS[si];
+  const total = sc.steps.length;
+  const showResp = step >= total;
+
+  // Auto-advance
+  useEffect(() => {
+    if (!playing) return;
+    if (step >= total) { setPlaying(false); return; }
+    const t = setTimeout(() => setStep(s => s + 1), STEP_MS);
+    return () => clearTimeout(t);
+  }, [playing, step, total]);
+
+  // Reset when scenario changes
+  useEffect(() => { setStep(-1); setPlaying(false); }, [si]);
+
+  const handlePlay = () => {
+    if (showResp) { replay(); return; }
+    if (step === -1) { setStep(0); setPlaying(true); return; }
+    setPlaying(p => !p);
+  };
+  const handlePrev = () => { setPlaying(false); setStep(s => Math.max(-1, s-1)); };
+  const handleNext = () => { setPlaying(false); setStep(s => Math.min(total, s+1)); };
+  const replay = () => { setStep(-1); setPlaying(false); setTimeout(() => { setStep(0); setPlaying(true); }, 60); };
+
+  const playIcon = playing ? "⏸" : showResp ? "↺" : "▶";
+
+  // Progress dots count = steps + 1 (response) = total + 1
+  const dotCount = total + 1;
+
+  return (
+    <div className="page">
+
+      {/* Header */}
+      <header className="header">
+        <div className="eyebrow">
+          <div className="eyebrow-pip" />
+          Pharmaceutical Sales CRM
+          <div className="eyebrow-pip" />
+        </div>
+        <h1>MediNote <em>AI</em></h1>
+        <p className="header-sub">Four intelligent pipelines — one unified entry point</p>
+      </header>
+
+      {/* Scenario picker */}
+      <div className="picker">
+        {SCENARIOS.map(s => (
+          <button
+            key={s.id}
+            className={`pill ${si === s.id ? "on" : ""}`}
+            style={{ "--_c": s.color }}
+            onClick={() => setSi(s.id)}
+          >
+            <span className="pill-no">{s.tag}</span>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Canvas */}
+      <div className="canvas">
+        {/* Timing bar */}
+        <TimingBar step={Math.max(0, step+1)} total={total+1} color={sc.color} playing={playing} />
+
+        {/* Question + pipeline — keyed to scenario so they animate on change */}
+        <div key={si} className="fadein" style={{ display:"flex", flexDirection:"column", gap:34 }}>
+
+          {/* Question */}
+          <div>
+            <div className="q-label">User question</div>
+            <div className="q-text">{sc.question}</div>
+          </div>
+
+          {/* Pipeline */}
+          <Pipeline scenario={sc} step={step} />
+
+          {/* Step narrative OR response */}
+          {step >= 0 && !showResp && <Narr scenario={sc} step={step} />}
+          {showResp && <Resp resp={sc.resp} color={sc.color} />}
+
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="ctrl">
+        <button className="cbtn" onClick={handlePrev} disabled={step <= -1}>&#8249;</button>
+        <button className="cbtn main" onClick={handlePlay}>{playIcon}</button>
+        <button className="cbtn" onClick={handleNext} disabled={step >= total}>&#8250;</button>
+        <div className="ctrl-div" />
+        <button className="cbtn" onClick={replay} title="Replay from start" style={{ fontSize:14 }}>↺</button>
+        <div className="pdots">
+          {Array.from({ length: dotCount }).map((_, i) => (
+            <div
+              key={i}
+              className={`pdot ${i < step ? "past" : i === step ? "now" : ""}`}
+            />
+          ))}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
